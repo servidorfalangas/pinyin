@@ -174,7 +174,7 @@ function go(view) {
   current = view;
   $$('main > .view').forEach(v => v.hidden = v.id !== 'v-' + view);
   $$('#tabs button').forEach(b => b.setAttribute('aria-current', b.dataset.go === view ? 'page' : 'false'));
-  ({ map: renderMap, review: renderReview, table: renderTable, words: renderWords, settings: renderSettings })[view]();
+  ({ map: renderMap, review: () => (window.UI && UI.renderPractice ? UI.renderPractice() : renderReview()), table: renderTable, words: renderWords, settings: renderSettings })[view]();
   $('#main').scrollTop = 0;
 }
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('button[data-go]'); if (b) go(b.dataset.go); });
@@ -468,6 +468,7 @@ function speakWidget(host, target, opts = {}) {
       const r = res.single || res;
       html += '<canvas class="contour"></canvas><div class="legend"><span><i style="background:var(--ref);height:6px"></i>Nativo</span><span><i style="background:var(--jade)"></i>Tú</span><span>1 = lo más grave de tu voz · 5 = lo más agudo</span></div>';
       html += '<div class="checks">' + r.checks.map(c => '<div class="check"><span class="pill ' + c.state + '">' + esc(c.label) + '</span><div class="msg">' + esc(c.msg) + '</div>' + checkMeter(c) + '</div>').join('') + '</div>';
+      if (r.checks.some(c => c.key === 'asp')) html += '<div class="air"><div class="eyebrow">Mira el aire</div><canvas class="airwave"></canvas><div class="legend"><span><i style="background:var(--amber);height:8px"></i>Aire (soplo o roce)</span><span><i style="background:var(--jade);height:8px"></i>Voz</span></div></div>';
     } else {
       html += '<canvas class="contour"></canvas><div class="syl-strip">' + res.syls.map((s, i) => '<div class="syl-box ' + (s.state === 'skip' ? '' : s.state) + '"><span class="s">' + esc(Core.mark(target.w.syls[i].replace(/\d$/, '') + s.target)) + '</span>' + toneIcon(s.target, true) + '<small>' + esc(s.state === 'skip' ? 'neutro' : s.state === 'ok' ? 'bien' : s.heardAs ? 'sonó a tono ' + s.heardAs : '¿?') + '</small></div>').join('') + '</div>';
       const bad = res.syls.filter(s => s.state === 'bad');
@@ -482,6 +483,8 @@ function speakWidget(host, target, opts = {}) {
       const r = res.single || res;
       const ref = await Core.refContour(Core.hasSyl(r.syl) && window.PYDATA.audio[Core.voice()][r.syl] ? Core.voice() : (Core.voice() === 'v1' ? 'v2' : 'v1'), r.syl).catch(() => null);
       drawSyllable(cv, ref && ref.pts, levelsOf(r.an.contour), userColor);
+      const aw = $('canvas.airwave', resHost);
+      if (aw) drawAir(aw, r, st.last).catch(() => {});
     } else {
       const w = target.w;
       const ref = w.audio ? await Core.refContour('w', w.h, w.syls.length).catch(() => null) : null;
@@ -512,6 +515,36 @@ function speakWidget(host, target, opts = {}) {
   overlayCleanup.push(() => { if (st.rec) st.rec.stop(); });
   return { best: () => st.best, attempts: () => st.attempts };
 }
+// Dibuja la onda del principio de la sílaba (nativo arriba, tú abajo) con el aire resaltado
+async function drawAir(cv, r, x) {
+  const bank = window.PYDATA.audio[Core.voice()][r.syl] ? Core.voice() : (Core.voice() === 'v1' ? 'v2' : 'v1');
+  const buf = await Core.bufferOf(bank, r.syl).catch(() => null);
+  const rows = [];
+  if (buf) { const nx = Core.samplesOf(buf); const na = E.analyzeSyllable(nx); if (na.ok) rows.push({ label: 'Nativo', x: nx, an: na }); }
+  rows.push({ label: 'Tú', x, an: r.an });
+  const { g, w, h } = sizeCanvas(cv); g.clearRect(0, 0, w, h);
+  const span = 0.42, rowH = h / rows.length, padL = 54;
+  g.font = '700 12px ' + css('--f-body'); g.textBaseline = 'middle';
+  rows.forEach((row, k) => {
+    const y0 = k * rowH, mid = y0 + rowH / 2, an = row.an;
+    const t0 = Math.max(0, (isFinite(an.noiseOn) ? an.noiseOn : an.t0) - 0.04), SR = E.SR;
+    const n = Math.round(span * SR), s0 = Math.round(t0 * SR), cols = Math.floor(w - padL - 6), per = Math.max(1, Math.floor(n / cols));
+    let peak = 1e-6; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(row.x[s0 + i] || 0));
+    const xOf = t => padL + (t - t0) / span * (w - padL - 6);
+    // zonas
+    if (isFinite(an.noiseOn) && isFinite(an.voiceOn) && an.voiceOn > an.noiseOn) { g.fillStyle = css('--amber-soft'); g.fillRect(xOf(an.noiseOn), y0 + 4, xOf(an.voiceOn) - xOf(an.noiseOn), rowH - 8); }
+    if (isFinite(an.voiceOn)) { g.fillStyle = css('--jade-soft'); g.fillRect(xOf(an.voiceOn), y0 + 4, w - 6 - xOf(an.voiceOn), rowH - 8); }
+    for (let c = 0; c < cols; c++) {
+      let m = 0; for (let i = 0; i < per; i++) m = Math.max(m, Math.abs(row.x[s0 + c * per + i] || 0));
+      const a = Math.sqrt(m / peak) * (rowH / 2 - 8), t = t0 + c * per / SR;
+      g.fillStyle = isFinite(an.voiceOn) && t >= an.voiceOn ? css('--jade') : isFinite(an.noiseOn) && t >= an.noiseOn ? css('--amber') : css('--line');
+      g.fillRect(padL + c, mid - a, 1, Math.max(1, 2 * a));
+    }
+    g.fillStyle = css('--ink'); g.textAlign = 'left'; g.fillText(row.label, 4, mid - 8);
+    g.fillStyle = css('--ink-2'); g.font = '11px ' + css('--f-body'); g.fillText(Math.round((an.noiseDur || 0) * 1000) + ' ms', 4, mid + 9); g.font = '700 12px ' + css('--f-body');
+    if (k) { g.strokeStyle = css('--line'); g.beginPath(); g.moveTo(0, y0); g.lineTo(w, y0); g.stroke(); }
+  });
+}
 function idealContour(t) { const p = CHAO[t] || [3, 3]; return p.map((L, i) => ({ t: i / (p.length - 1), L })); }
 function wordToneTip(s) {
   const tips = { 1: 'Mantén esta sílaba alta y plana.', 2: 'Esta sílaba debe subir con claridad.', 3: 'Esta sílaba va abajo del todo (sin subir si va delante de otra).', 4: 'Esta sílaba cae desde arriba, seca.' };
@@ -531,7 +564,7 @@ function startLesson(id) {
 function runSession(sess) {
   const ov = openOverlay('<div class="ex-top"><button class="icon-btn" data-x aria-label="Salir">' + I.close + '</button><div class="bar"><i style="width:0"></i></div></div><div class="ex-body"></div><div class="ex-foot"></div>');
   const body = $('.ex-body', ov), foot = $('.ex-foot', ov), bar = $('.bar i', ov);
-  sess.i = 0; sess.results = []; sess.wrong = [];
+  sess.i = 0; sess.results = []; sess.wrong = []; sess.log = [];
   $('[data-x]', ov).addEventListener('click', () => { closeOverlay(); renderCurrent(); });
   const graded = () => sess.steps.filter(s => s.type === 'speak' || s.type === 'listen').length;
   function show() {
@@ -554,7 +587,7 @@ function runSession(sess) {
       let chosen = null;
       const showWord = s.show ? '<div class="target"><div class="hz" style="font-size:3rem">' + esc(s.show.h) + '</div><div class="py" style="font-size:1.8rem">' + esc(Core.markWord(s.show.p)) + '</div></div>' : '';
       body.innerHTML = '<div class="eyebrow" style="text-align:center">' + esc(s.prompt) + '</div>' + showWord + '<div class="listen-row"><button class="play-btn big" data-pl>' + I.play + 'Escuchar</button><button class="play-btn" data-sl>' + I.slow + 'Lento</button></div><div class="options' + (s.one ? ' one' : '') + '">' + s.options.map((o, k) => '<button class="opt" data-o="' + k + '">' + o.html + '</button>').join('') + '</div>';
-      const play = rate => s.play.word ? Core.playWord(s.play.word, { rate }) : Core.playSyl(s.play.syl, { rate });
+      const play = rate => s.play.sent ? Core.playSentence(s.play.sent, { rate }) : s.play.word ? Core.playWord(s.play.word, { rate }) : Core.playSyl(s.play.syl, { rate });
       setTimeout(() => play(), 300);
       $('[data-pl]', body).addEventListener('click', () => play());
       $('[data-sl]', body).addEventListener('click', () => play(0.75));
@@ -569,13 +602,20 @@ function runSession(sess) {
         const ok = s.options[chosen].value === s.answer;
         $$('.opt', body).forEach((x, k) => { if (s.options[k].value === s.answer) x.classList.add('right'); else if (k === chosen) x.classList.add('wrong'); });
         sess.results.push(ok ? 1 : 0);
+        sess.log.push({ cat: s.cat || 'listen', v: ok ? 1 : 0 });
         recordCheck('listen', ok ? 'ok' : 'bad');
+        if (s.stat) Core.fine.add(s.stat, ok ? 1 : 0);
         if (!ok) { sess.wrong.push(s); play(); }
         foot.className = 'ex-foot ' + (ok ? 'ok' : 'bad');
-        foot.innerHTML = '<div style="flex:1;align-self:center;font-weight:700">' + (ok ? '¡Correcto!' : 'Era: ' + s.options.find(o => o.value === s.answer).html.replace(/<[^>]+>/g, ' ').trim()) + '</div><button class="btn primary" data-n>Continuar</button>';
+        foot.innerHTML = '<div style="flex:1;align-self:center;font-weight:700">' + (ok ? '¡Correcto!' : 'Era: ' + esc(s.options.find(o => o.value === s.answer).label || s.options.find(o => o.value === s.answer).html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())) + '</div><button class="btn primary" data-n>Continuar</button>';
+        if (s.explain) body.insertAdjacentHTML('beforeend', '<div class="note">' + s.explain + '</div>');
+        if (!ok && s.compare) body.insertAdjacentHTML('beforeend', '<div class="listen-row">' + s.compare.map(c => '<button class="play-btn" data-say="' + esc(c) + '">' + I.play + esc(Core.mark(c)) + '</button>').join('') + '</div>');
         body.onclick = null; delete foot.dataset.locked;
         foot.onclick = ev => { if (ev.target.closest('[data-n]')) { sess.i++; show(); } };
       };
+      return;
+    } else if (s.type === 'dictate') {
+      dictateStep(s, body, foot, (v) => { sess.results.push(v); sess.log.push({ cat: s.cat || 'dict', v }); if (v < 0.99) sess.wrong.push(s); }, () => { sess.i++; show(); });
       return;
     } else if (s.type === 'speak') {
       body.innerHTML = '<div class="speak-host view"></div>';
@@ -586,6 +626,7 @@ function runSession(sess) {
           if (s.target.type === 'syl') { res.checks.forEach(c => recordCheck(c.key, c.state)); const tc = res.checks.find(c => c.key === 'tone'); if (tc) recordTone(res.sp.tone, tc.state === 'ok'); }
           else if (res.syls) res.syls.forEach(x => { if (x.state !== 'skip') { recordCheck('tone', x.state); recordTone(x.target, x.state === 'ok'); } });
           else if (res.single) res.single.checks.forEach(c => recordCheck(c.key, c.state));
+          fineFromResult(res, s.target);
         }
         recorded = true; $('[data-n]', foot).disabled = false; $('[data-n]', foot).textContent = 'Continuar';
       } });
@@ -594,7 +635,7 @@ function runSession(sess) {
         if (e.target.closest('[data-skip]')) { sess.results.push(null); sess.i++; foot.onclick = null; show(); return; }
         if (!e.target.closest('[data-n]') || !recorded) return;
         const best = sw.best(); const sc = best ? best.score : 0;
-        sess.results.push(sc);
+        sess.results.push(sc); sess.log.push({ cat: s.cat || 'speak', v: sc });
         const item = s.target.type === 'word' ? { type: 'word', key: s.target.w.h } : { type: 'syl', key: s.target.syl, focus: s.target.focus };
         if (sc < 0.75) { sess.wrong.push(s); srsAdd(item, false); } else if (srs[item.type + ':' + item.key]) srsAdd(item, true);
         if (s.target.type === 'word' && Core.words.includes(s.target.w)) { const wp = prog.words[s.target.w.h] || (prog.words[s.target.w.h] = { n: 0, ok: 0 }); wp.n++; wp.ok += sc; }
@@ -617,9 +658,11 @@ function runSession(sess) {
       else if (prev) prev.at = Date.now();
     }
     saveProg();
+    const extra = sess.onFinish ? sess.onFinish(sess, score) || '' : '';
     const wrongNames = [...new Set(sess.wrong.filter(s => s.type === 'speak').map(s => s.target.type === 'word' ? s.target.w.h : Core.mark(s.target.syl)))];
-    body.innerHTML = '<div class="summary"><div class="bigstars">' + [1, 2, 3].map(k => I.star(k <= stars)).join('') + '</div><div class="score">' + Math.round(score * 100) + ' %</div><h2>' + (stars === 3 ? '¡Excelente!' : stars === 2 ? '¡Muy bien!' : stars === 1 ? 'Superada' : 'Hay que repetirla') + '</h2><p class="muted">+' + gained + ' puntos' + (vals.length < graded() ? ' · ' + (graded() - vals.length) + ' ejercicios saltados' : '') + '</p>' +
-      (wrongNames.length ? '<div class="panel" style="width:100%;text-align:left"><h3>Para el repaso</h3><p class="muted">Te los volveré a pedir en la pestaña Repaso:</p><div class="ex-chips">' + wrongNames.map(n => '<span class="chip">' + esc(n) + '</span>').join('') + '</div></div>' : '') + '</div>';
+    const head = sess.lesson ? (stars === 3 ? '¡Excelente!' : stars === 2 ? '¡Muy bien!' : stars === 1 ? 'Superada' : 'Hay que repetirla') : (score >= 0.9 ? '¡Excelente!' : score >= 0.75 ? '¡Muy bien!' : score >= 0.5 ? 'Bien, sigue así' : 'Hay que practicar más');
+    body.innerHTML = '<div class="summary"><div class="bigstars">' + [1, 2, 3].map(k => I.star(k <= stars)).join('') + '</div><div class="score">' + Math.round(score * 100) + ' %</div><h2>' + head + '</h2><p class="muted">+' + gained + ' puntos' + (vals.length < graded() ? ' · ' + (graded() - vals.length) + ' ejercicios saltados' : '') + '</p>' +
+      extra + (wrongNames.length ? '<div class="panel" style="width:100%;text-align:left"><h3>Para el repaso</h3><p class="muted">Te los volveré a pedir en la pestaña Practicar:</p><div class="ex-chips">' + wrongNames.map(n => '<span class="chip">' + esc(n) + '</span>').join('') + '</div></div>' : '') + '</div>';
     foot.innerHTML = (stars === 0 && sess.lesson ? '<button class="btn" data-again>Repetir</button>' : '') + '<button class="btn primary" data-end>Terminar</button>';
     foot.onclick = e => {
       if (e.target.closest('[data-end]')) { closeOverlay(); renderCurrent(); }
@@ -628,6 +671,82 @@ function runSession(sess) {
   }
   show();
 }
+// estadísticas finas a partir de un resultado de hablar
+const ST_V = st => st === 'ok' ? 1 : st === 'unsure' ? 0.5 : 0;
+function fineFromResult(res, target) {
+  const fromChecks = (r) => {
+    const sp = r.sp; if (!sp) return;
+    const map = { tone: 'S:tone:' + sp.tone, asp: 'S:asp:' + sp.ini, retro: 'S:retro:' + sp.ini, vowel: 'S:vowel:' + sp.canon, nasal: 'S:nasal:' + sp.canon };
+    r.checks.forEach(c => { if (map[c.key]) Core.fine.add(map[c.key], ST_V(c.state)); });
+    if (r.checks.length) Core.fine.add('syl:' + sp.base, r.checks.reduce((a, c) => a + ST_V(c.state), 0) / r.checks.length);
+  };
+  if (target.type === 'syl') return fromChecks(res);
+  if (res.single) return fromChecks(res.single);
+  if (!res.syls) return;
+  const w = target.w, graded = [];
+  res.syls.forEach((x, i) => {
+    if (x.state === 'skip') return;
+    const v = ST_V(x.state); graded.push(v);
+    Core.fine.add('S:tone:' + x.target, v);
+    const base = w.syls[i].replace(/\d$/, ''); if (Core.hasSyl(base + '1') || Core.hasSyl(base + '4')) Core.fine.add('syl:' + base, v);
+  });
+  if (w.syls.length === 2 && graded.length) Core.fine.add('S:pair:' + w.tones.join(''), graded.reduce((a, b) => a + b, 0) / graded.length);
+}
+
+// ---------- dictado ----------
+function sylParts(base) { const sp = Core.split(base + '1'); return sp ? { ini: sp.spelledIni && 'yw'.includes(sp.spelledIni) ? '' : sp.ini, fin: sp.canon } : { ini: '', fin: base }; }
+function dictateStep(s, body, foot, onScore, next) {
+  const play = rate => s.play.sent ? Core.playSentence(s.play.sent, { rate }) : s.play.word ? Core.playWord(s.play.word, { rate }) : Core.playSyl(s.play.syl, { rate });
+  body.innerHTML = '<div class="eyebrow" style="text-align:center">' + esc(s.prompt || 'Escribe en pinyin lo que oyes') + '</div>' +
+    '<div class="listen-row"><button class="play-btn big" data-pl>' + I.play + 'Escuchar</button><button class="play-btn" data-sl>' + I.slow + 'Lento</button></div>' +
+    '<input class="text dict-in" id="dictIn" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="' + (s.answer.length > 1 ? 'por ejemplo: ni3 hao3' : 'por ejemplo: ma3') + '">' +
+    '<div class="keys"><button data-k="1">1 ā</button><button data-k="2">2 á</button><button data-k="3">3 ǎ</button><button data-k="4">4 à</button><button data-k="5">neutro</button><button data-k="ü">ü</button><button data-k=" ">espacio</button><button data-k="del">⌫</button></div>' +
+    '<p class="muted" style="text-align:center">Pon el número del tono detrás de cada sílaba. Para la ü escribe v o usa el botón.' + (s.hint ? ' ' + esc(s.hint) : '') + '</p><div class="dict-res"></div>';
+  const inp = $('#dictIn', body);
+  setTimeout(() => play(), 300);
+  $('[data-pl]', body).addEventListener('click', () => play());
+  $('[data-sl]', body).addEventListener('click', () => play(0.75));
+  body.onclick = e => {
+    const k = e.target.closest('[data-k]'); if (!k || inp.disabled) return;
+    const v = k.dataset.k;
+    if (v === 'del') inp.value = inp.value.slice(0, -1); else inp.value += (v === '5' ? '5 ' : /[1-4]/.test(v) ? v + ' ' : v === 'ü' ? 'v' : v);
+    inp.focus();
+  };
+  foot.innerHTML = '<button class="btn primary" data-chk>Comprobar</button>';
+  const check = () => {
+    if (inp.disabled) return;
+    const got = Core.parsePinyin(inp.value);
+    if (!got.length) { inp.focus(); return; }
+    inp.disabled = true;
+    const rows = []; let total = 0;
+    s.answer.forEach((a, i) => {
+      const g = got[i] || { base: '', tone: 0 };
+      const pa = sylParts(a.base.replace(/r$/, a.base.length > 2 ? '' : 'r')), pg = sylParts(g.base.replace(/r$/, g.base.length > 2 ? '' : 'r'));
+      const iniOk = g.base && pa.ini === pg.ini, finOk = g.base && pa.fin === pg.fin && (a.base.endsWith('r') === g.base.endsWith('r'));
+      const okTones = [a.tone].concat(a.alt || []);
+      const toneOk = !!g.base && (okTones.includes(g.tone) || (a.tone === 5 && g.tone === 5));
+      const v = ((iniOk ? 1 : 0) + (finOk ? 1 : 0) + (toneOk ? 1 : 0)) / 3; total += v;
+      if (a.tone >= 1 && a.tone <= 4) Core.fine.add('D:tone:' + a.tone, toneOk ? 1 : 0);
+      if (pa.ini) Core.fine.add('D:ini:' + pa.ini, iniOk ? 1 : 0);
+      Core.fine.add('D:fin:' + pa.fin, finOk ? 1 : 0);
+      rows.push('<div class="dict-row"><span class="py-ok">' + esc(Core.mark(a.base + a.tone)) + '</span><span class="py-you">' + (g.base ? esc(Core.mark(g.base + g.tone)) : '—') + '</span>' +
+        '<div class="pills"><span class="pill ' + (iniOk ? 'ok' : 'bad') + '">inicial</span><span class="pill ' + (finOk ? 'ok' : 'bad') + '">final</span><span class="pill ' + (toneOk ? 'ok' : 'bad') + '">tono</span></div>' +
+        (!iniOk || !finOk ? '<button class="link" data-ab="' + esc(a.base + (a.tone === 5 ? 1 : a.tone)) + '|' + esc((g.base || '') + (g.tone === 5 || !g.tone ? 1 : g.tone)) + '">oír las dos</button>' : '') + '</div>');
+    });
+    if (got.length > s.answer.length) rows.push('<p class="muted">Has escrito ' + (got.length - s.answer.length) + ' sílaba(s) de más.</p>');
+    const score = total / s.answer.length;
+    $('.dict-res', body).innerHTML = '<div class="result"><div class="dict-head"><span>Correcto</span><span>Tú</span></div>' + rows.join('') + (s.show ? '<div class="target" style="padding-top:4px"><div class="hz" style="font-size:2rem">' + esc(s.show.h) + '</div><div class="gloss">' + esc(s.show.es) + '</div></div>' : '') + '</div>';
+    onScore(score);
+    foot.className = 'ex-foot ' + (score >= 0.99 ? 'ok' : 'bad');
+    foot.innerHTML = '<div style="flex:1;align-self:center;font-weight:700">' + (score >= 0.99 ? '¡Perfecto!' : Math.round(score * 100) + ' % bien') + '</div><button class="btn primary" data-n>Continuar</button>';
+    foot.onclick = e => { if (e.target.closest('[data-n]')) { body.onclick = null; next(); } };
+    if (score < 0.99) play();
+  };
+  foot.onclick = e => { if (e.target.closest('[data-chk]')) check(); };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); check(); } });
+  body.addEventListener('click', async e => { const ab = e.target.closest('[data-ab]'); if (!ab) return; const [x, y] = ab.dataset.ab.split('|'); await Core.playSyl(x); await new Promise(r => setTimeout(r, 300)); if (y && Core.hasSyl(y)) Core.playSyl(y); });
+}
+
 function wordNotes(w) {
   const diff = w.spoken.some((s, i) => s !== w.tones[i] && s !== 5);
   const notes = [];
@@ -733,17 +852,54 @@ function openCalibration(after) {
 }
 
 // ---------- tabla de pinyin ----------
-let tableTone = 1;
+let tableTone = 1, tableHeat = false;
+// Trampas de escritura: lo que se escribe no es lo que suena
+function trapNote(ini, fin) {
+  if (fin === 'iou') return { short: 'iu = iou', text: 'Se escribe <b>' + esc(C.spell(ini, fin)) + '</b> pero suena con una o en medio: "' + esc((ini || 'y') + 'iou') + '". En tonos 3 y 4 la o se oye bastante.' };
+  if (fin === 'uei') return { short: 'ui = uei', text: 'Se escribe <b>' + esc(C.spell(ini, fin)) + '</b> pero suena "' + esc((ini || 'w') + 'uei') + '": hay una e escondida.' };
+  if (fin === 'uen') return { short: 'un = uen', text: 'Se escribe <b>' + esc(C.spell(ini, fin)) + '</b> pero suena "' + esc((ini || 'w') + 'uən') + '": con una e neutra en medio.' };
+  if (fin === 'ian') return { short: 'ian = ien', text: 'Se escribe <b>' + esc(C.spell(ini, fin)) + '</b> pero suena casi "' + esc((ini || 'y') + 'ien') + '": la a se cierra hacia una e.' };
+  if (fin[0] === 'v' && (!ini || 'jqx'.includes(ini))) return { short: 'u = ü', text: 'Después de <b>j, q, x</b> y en <b>yu</b> se escribe u, pero suena <b>ü</b> (lengua de i, labios de u). Los puntos de la ü se quitan porque ahí nunca puede ir una u normal.' };
+  if (fin === 'i' && ['z', 'c', 's'].includes(ini)) return { short: 'i ≠ i', text: 'Aquí la i no suena i: es un zumbido "zzz" con la lengua donde estaba.' };
+  if (fin === 'i' && ['zh', 'ch', 'sh', 'r'].includes(ini)) return { short: 'i ≠ i', text: 'Aquí la i no suena i: la lengua sigue doblada hacia atrás, como una "r" inglesa.' };
+  if (fin === 'e' && ini) return null;
+  if (fin === 'o' && 'bpmf'.includes(ini) && ini) return { short: 'o = uo', text: 'Después de b, p, m, f la o suena "uo": bo suena casi "buo".' };
+  return null;
+}
+// Sílabas con las que se confunde un hispanohablante
+const CONF_INI = [['z', 'zh', 'j'], ['c', 'ch', 'q'], ['s', 'sh', 'x'], ['b', 'p'], ['d', 't'], ['g', 'k'], ['z', 'c'], ['zh', 'ch'], ['j', 'q'], ['l', 'r'], ['n', 'l'], ['f', 'h']];
+const CONF_FIN = [['an', 'ang'], ['en', 'eng'], ['in', 'ing'], ['ian', 'iang'], ['uan', 'uang'], ['v', 'u'], ['uen', 'ueng'], ['ie', 've'], ['e', 'o'], ['i', 'v']];
+function confusables(base) {
+  const sp = Core.split(base + '1'); if (!sp) return [];
+  const ini = sp.spelledIni && 'yw'.includes(sp.spelledIni) ? '' : sp.ini;
+  let fin = sp.canon === 'i-apical' || sp.canon === 'i-retro' ? 'i' : sp.canon;
+  const out = new Set();
+  const tryAdd = (i, f) => {
+    let ff = f;
+    if (i && 'jqx'.includes(i) && ff === 'u') ff = 'v';
+    if (i && 'jqx'.includes(i) && /^u(an|e|n)?$/.test(ff) && !'jqx'.includes(ini)) ff = 'v' + ff.slice(1);
+    if (!'jqx'.includes(i || '-') && ff[0] === 'v' && ini && 'jqx'.includes(ini) && i) ff = 'u' + ff.slice(1);
+    const cand = C.spell(i, ff);
+    if (cand && cand !== base && [1, 2, 3, 4].some(t => Core.hasSyl(cand + t))) out.add(cand);
+  };
+  CONF_INI.forEach(g => { if (g.includes(ini)) g.forEach(i => i !== ini && tryAdd(i, fin)); });
+  CONF_FIN.forEach(g => { if (g.includes(fin)) g.forEach(f => f !== fin && tryAdd(ini, f)); });
+  return [...out].slice(0, 6);
+}
+function heatClass(base) { const r = Core.fine.rate('syl:' + base); return r == null ? '' : r >= 0.8 ? ' h3' : r >= 0.5 ? ' h2' : ' h1'; }
 function renderTable() {
   const v = $('#v-table');
-  let html = '<div class="tbl-tools"><h2 style="flex:1">Tabla de pinyin</h2><div class="seg" role="group" aria-label="Tono">' + [1, 2, 3, 4].map(t => '<button data-tt="' + t + '" aria-pressed="' + (t === tableTone) + '">' + t + '</button>').join('') + '</div></div><p class="muted">Toca una sílaba para escucharla, ver cómo se pone la boca y practicarla.</p>';
-  html += '<div class="tbl-wrap"><table class="py"><thead><tr><th class="ini"></th>' + C.TABLE_FIN.map(f => '<th>' + esc(f === 'v' ? 'ü' : f.replace(/^v/, 'ü')) + '</th>').join('') + '</tr></thead><tbody>';
+  let html = '<div class="tbl-tools"><h2 style="flex:1">Tabla de pinyin</h2><div class="seg" role="group" aria-label="Tono">' + [1, 2, 3, 4].map(t => '<button data-tt="' + t + '" aria-pressed="' + (t === tableTone) + '">' + t + '</button>').join('') + '</div></div>' +
+    '<div class="tbl-tools"><p class="muted" style="flex:1">Toca una sílaba para escucharla, ver cómo se pone la boca y practicarla. El punto marca una trampa de escritura.</p><button class="btn small' + (tableHeat ? ' primary' : '') + '" data-heat aria-pressed="' + tableHeat + '">Mis resultados</button></div>' +
+    (tableHeat ? '<div class="legend heat-legend"><span><i class="hl0"></i>Sin practicar</span><span><i class="hl1"></i>Flojo</span><span><i class="hl2"></i>En marcha</span><span><i class="hl3"></i>Bien</span></div>' : '');
+  html += '<div class="tbl-wrap' + (tableHeat ? ' heat' : '') + '"><table class="py"><thead><tr><th class="ini"></th>' + C.TABLE_FIN.map(f => '<th>' + esc(f === 'v' ? 'ü' : f.replace(/^v/, 'ü')) + '</th>').join('') + '</tr></thead><tbody>';
   C.TABLE_INI.forEach(ini => {
     html += '<tr><td class="ini">' + esc(ini || '–') + '</td>';
     C.TABLE_FIN.forEach(fin => {
       const s = C.spell(ini, fin);
       const has = s && [1, 2, 3, 4].some(t => Core.hasSyl(s + t));
-      html += '<td>' + (has ? '<button data-syl="' + esc(s) + '" data-ini="' + esc(ini) + '" data-fin="' + esc(fin) + '">' + esc(C.display(s)) + '</button>' : '') + '</td>';
+      const trap = has && trapNote(ini, fin);
+      html += '<td>' + (has ? '<button class="' + (tableHeat ? heatClass(s) : '') + (trap ? ' trap' : '') + '" data-syl="' + esc(s) + '" data-ini="' + esc(ini) + '" data-fin="' + esc(fin) + '">' + esc(C.display(s)) + '</button>' : '') + '</td>';
     });
     html += '</tr>';
   });
@@ -752,17 +908,25 @@ function renderTable() {
 }
 $('#v-table').addEventListener('click', e => {
   const t = e.target.closest('[data-tt]'); if (t) { tableTone = +t.dataset.tt; $$('[data-tt]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.tt === tableTone))); return; }
+  if (e.target.closest('[data-heat]')) { const sc = $('.tbl-wrap') ? [$('.tbl-wrap').scrollLeft, $('.tbl-wrap').scrollTop] : [0, 0]; tableHeat = !tableHeat; renderTable(); const tw = $('.tbl-wrap'); if (tw) { tw.scrollLeft = sc[0]; tw.scrollTop = sc[1]; } return; }
   const b = e.target.closest('[data-syl]'); if (!b) return;
   const syl = b.dataset.syl;
   const tt = Core.hasSyl(syl + tableTone) ? tableTone : [1, 2, 3, 4].find(x => Core.hasSyl(syl + x));
   Core.playSyl(syl + tt);
-  openSylSheet(syl, b.dataset.ini, b.dataset.fin);
+  openSylSheet(syl, b.dataset.ini, b.dataset.fin, tt);
 });
-function openSylSheet(base, ini, fin) {
+function openSylSheet(base, ini, fin, tone0) {
   const tones = [1, 2, 3, 4].filter(t => Core.hasSyl(base + t));
-  let html = '<div class="tone-btns">' + [1, 2, 3, 4].map(t => '<button class="btn" data-pt="' + t + '"' + (tones.includes(t) ? '' : ' disabled') + '><b>' + esc(Core.mark(base + t)) + '</b>' + toneIcon(t, true) + '</button>').join('') + '</div>';
+  let cur = tone0 || tones[0];
+  let html = '<div class="tone-btns">' + [1, 2, 3, 4].map(t => { const ex = Core.example(base + t); return '<button class="btn" data-pt="' + t + '"' + (tones.includes(t) ? '' : ' disabled') + '><b>' + esc(Core.mark(base + t)) + '</b>' + toneIcon(t, true) + (ex ? '<span class="ex-char han">' + esc(ex[0]) + '</span>' + (ex[1] ? '<span class="ex-es">' + esc(ex[1]) + '</span>' : '') : '') + '</button>'; }).join('') + '</div>';
   html += '<div class="row-btns"><button class="btn small" data-voice="v1">Voz 1</button><button class="btn small" data-voice="v2">Voz 2</button></div>';
   html += '<div class="row-btns">' + tones.map(t => '<button class="btn primary small" data-prac="' + t + '">' + I.mic.replace('<svg', '<svg width="16" height="16"') + 'Practicar ' + esc(Core.mark(base + t)) + '</button>').join('') + '</div>';
+  const trap = trapNote(ini, fin);
+  if (trap) html += '<div class="note"><b>Ojo, trampa de escritura:</b> ' + trap.text + '</div>';
+  const conf = confusables(base);
+  if (conf.length) html += '<div class="card conf"><div><div class="eyebrow">Se confunde con</div><p class="muted">Toca para oír las dos seguidas. Elige el tono arriba.</p></div><div class="conf-list">' + conf.map(c => '<button class="conf-btn" data-conf="' + esc(c) + '"><span>' + esc(C.display(base)) + '</span><span class="vs">↔</span><span>' + esc(C.display(c)) + '</span></button>').join('') + '</div></div>';
+  const r = Core.fine.rate('syl:' + base);
+  if (r != null) html += '<div class="kv"><span>Cómo te sale esta sílaba</span><b>' + Math.round(r * 100) + ' %</b></div>';
   const cards = [];
   if (ini && C.INI[ini]) cards.push(C.intro('ini:' + ini));
   const sp = Core.split(base + '1');
@@ -772,11 +936,17 @@ function openSylSheet(base, ini, fin) {
   const back = openSheet(C.display(base), html);
   let voice = Core.voice();
   const setV = () => $$('[data-voice]', back).forEach(b => b.classList.toggle('primary', b.dataset.voice === voice));
-  setV();
+  const setT = () => $$('[data-pt]', back).forEach(b => b.classList.toggle('sel-tone', +b.dataset.pt === cur));
+  setV(); setT();
   $$('.mouth', back).forEach(m => { const mo = window.Mouth.build($('.mouth-host', m)); m._m = mo; const seq = window.Mouth.SEQ[m.dataset.seq]; if (seq) setTimeout(() => mo.play(seq), 300); });
-  back.addEventListener('click', e => {
-    const p = e.target.closest('[data-pt]'); if (p) { Core.playSyl(base + p.dataset.pt, { voice: window.PYDATA.audio[voice][base + p.dataset.pt] ? voice : undefined }); return; }
+  const pv = s => Core.playSyl(s, { voice: window.PYDATA.audio[voice][s] ? voice : undefined });
+  back.addEventListener('click', async e => {
+    const p = e.target.closest('[data-pt]'); if (p) { cur = +p.dataset.pt; setT(); pv(base + cur); return; }
     const vv = e.target.closest('[data-voice]'); if (vv) { voice = vv.dataset.voice; setV(); return; }
+    const cf = e.target.closest('[data-conf]'); if (cf) {
+      const other = cf.dataset.conf; const t = Core.hasSyl(other + cur) && Core.hasSyl(base + cur) ? cur : [1, 2, 3, 4].find(x => Core.hasSyl(other + x) && Core.hasSyl(base + x));
+      if (!t) return; cf.classList.add('playing'); await pv(base + t); await new Promise(r => setTimeout(r, 350)); await pv(other + t); cf.classList.remove('playing'); return;
+    }
     const pr = e.target.closest('[data-prac]'); if (pr) { closeSheet(); const syl = base + pr.dataset.prac; openPractice(sylTarget(syl, focusFor(syl)), 'Practicar ' + Core.mark(syl)); }
   });
 }
@@ -849,7 +1019,7 @@ function renderSettings() {
     '<button class="btn primary" data-cal>' + (cal ? 'Repetir calibración' : 'Calibrar ahora') + '</button></div>' +
     '<div class="panel"><h3>Audio de referencia</h3><p class="muted">Dos voces nativas para las sílabas. Las palabras tienen una tercera voz.</p><div class="seg" role="group" aria-label="Voz">' + ['v1', 'v2'].map(k => '<button data-voice="' + k + '" aria-pressed="' + (settings.voice === k) + '">Voz ' + k.slice(1) + '</button>').join('') + '</div></div>' +
     '<div class="panel"><h3>Tema</h3><div class="seg" role="group" aria-label="Tema">' + [['system', 'Sistema'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([k, l]) => '<button data-theme="' + k + '" aria-pressed="' + (settings.theme === k) + '">' + l + '</button>').join('') + '</div></div>' +
-    '<div class="panel"><h3>Segunda opinión con Gemini (opcional)</h3><p class="muted">La app evalúa todo en tu móvil, sin enviar nada. Si quieres, puedes pedir además la opinión de Gemini después de cada intento: el audio se envía a Google solo cuando tocas el botón. Consigue una clave gratis en aistudio.google.com → "Get API key".</p>' +
+    '<div class="panel"><h3>Segunda opinión con Gemini (opcional)</h3><p class="muted">La app evalúa todo en tu móvil, sin enviar nada. Con una clave de Gemini se activan dos extras: la segunda opinión después de cada intento y el tutor de conversación. El audio se envía a Google solo cuando usas esas funciones.</p><p class="muted"><b>Cómo conseguir la clave (gratis):</b> entra en aistudio.google.com con tu cuenta de Google → "Get API key" → "Create API key" y pégala aquí. Ojo: la suscripción de Gemini para estudiantes es para la app de Gemini y no incluye esta clave, pero la clave tiene un uso gratuito que sobra para practicar.</p>' +
     '<input class="text" id="gemKey" type="password" autocomplete="off" placeholder="Pega aquí tu clave de Gemini" value="' + esc(g.key || '') + '"><div class="row-btns"><button class="btn small" data-gsave>Guardar y probar</button>' + (g.key ? '<button class="btn small danger" data-gdel>Quitar</button>' : '') + '</div><div id="gemMsg" class="muted">' + (g.model ? 'Modelo: ' + esc(g.model) : '') + '</div></div>' +
     '<div class="panel"><h3>Instalar en el móvil</h3><p class="muted">En Chrome: menú ⋮ → "Añadir a pantalla de inicio" o "Instalar aplicación". Funciona sin internet una vez abierta.</p></div>' +
     '<div class="panel"><h3>Progreso</h3>' + (confirmReset ? '<div class="confirm"><b>¿Borrar todo tu progreso?</b><span class="muted">Se borran lecciones, puntos y repaso. La calibración se mantiene.</span><div class="row-btns"><button class="btn" data-rno>Cancelar</button><button class="btn danger" data-ryes>Borrar</button></div></div>' : '<button class="btn danger" data-reset>Borrar progreso</button>') + '</div>' +
@@ -871,6 +1041,11 @@ $('#v-settings').addEventListener('click', async e => {
     catch (err) { msg.textContent = err.message || 'No ha funcionado.'; }
   }
 });
+
+// ---------- piezas para practice.js ----------
+window.UI = { $, $$, esc, shuffle, pick, css, I, toneIcon, toneChart, CHAO, openOverlay, closeOverlay, openSheet, closeSheet, runSession, speakWidget, sylTarget, wordTarget, sylWithTone, pairWithTone,
+  toast, prog: () => prog, saveProg, srsAdd, dueItems, srs: () => srs, openCalibration, micErrorHTML, sizeCanvas, gridLevels, plotLine, renderCurrent, go, addCleanup: f => overlayCleanup.push(f),
+  streak, markDay, recordCheck, fineFromResult, levelsOf, introCardHTML, mountMouths, openPractice, focusFor, confusables, updateChips, wordFromPhrase };
 
 // ---------- inicio ----------
 updateChips();

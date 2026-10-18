@@ -485,6 +485,146 @@ Core.refContour = async (bank, key, nSyl) => {
   return res;
 };
 
+
+// ---------- parejas de tonos, frases y ejemplos ----------
+const mkWord = (id, h, p, es, extra) => { const syls = p.split(' '); const tones = syls.map(x => +x.slice(-1)); return Object.assign({ id, h, p, es, syls, tones, spoken: spokenTones(tones, h), audio: !!D.audio.w[h] }, extra || {}); };
+Core.mkWord = mkWord;
+Core.pairs = (D.pairs || []).map(([k, h, p, es], i) => mkWord('p' + i, h, p, es, { pair: k }));
+Core.PAIR_KEYS = []; for (const a of [1, 2, 3, 4]) for (const b of [1, 2, 3, 4, 5]) Core.PAIR_KEYS.push('' + a + b);
+Core.sentences = (D.sentences || []).map(([id, lv, h, p, es]) => mkWord(id, h, p, es, { level: lv, sent: true, audio: false, sAudio: !!D.audio.s[id] }));
+Core.example = syl => (D.examples || {})[syl] || null;
+Core.playSentence = async (s, opts = {}) => {
+  const b = await getBuffer('s', s.id).catch(() => null);
+  if (b) { await playBuffer(b, opts.rate || 1); return 's'; }
+  return speak(s.h);
+};
+Core.bufferOf = (bank, key) => getBuffer(bank, key);
+
+// ---------- estadísticas finas (para los puntos débiles y el mapa de la tabla) ----------
+Core.fine = {
+  all: () => store.get('fine', {}),
+  add(key, v) { const f = store.get('fine', {}); const s = f[key] || (f[key] = { n: 0, ok: 0, last: 0, rec: [] }); s.n++; s.ok += v; s.last = Date.now(); s.rec = (s.rec || []).concat([Math.round(v * 100) / 100]).slice(-10); store.set('fine', f); },
+  rate(key) { const s = store.get('fine', {})[key]; if (!s || !s.n) return null; const r = s.rec && s.rec.length ? s.rec : null; return r ? r.reduce((a, b) => a + b, 0) / r.length : s.ok / s.n; },
+  reset() { store.del('fine'); },
+};
+
+// ---------- leer pinyin escrito por el usuario ----------
+const MARK2 = {}; Object.entries(MARKS).forEach(([b, ms]) => Array.from(ms).forEach((m, i) => { MARK2[m] = [b, i + 1]; }));
+MARK2['ü'] = ['v', 0];
+const BASESET = new Set(Core.sylBases.concat(['r']));
+// "nǐ hǎo", "ni3hao3", "ni3 hao3", "lü4", "lu:4" -> [{base:'ni', tone:3}, ...]
+Core.parsePinyin = input => {
+  let s = String(input || '').toLowerCase().normalize('NFC').replace(/u:/g, 'v').replace(/[’'`·,.!?;，。？！]/g, ' ');
+  const letters = [], tones = []; // tones[i] = tono pegado a la letra i (por marca) o número tras ella
+  for (const ch of s) {
+    if (MARK2[ch]) { letters.push(MARK2[ch][0]); tones.push(MARK2[ch][1] || 0); }
+    else if (/[a-z]/.test(ch)) { letters.push(ch); tones.push(0); }
+    else if (/[1-5]/.test(ch)) { if (letters.length) { letters.push('#' + ch); tones.push(0); } }
+    else if (/\s/.test(ch)) { letters.push(' '); tones.push(0); }
+  }
+  // segmenta: los espacios y números son cortes firmes; dentro, mayor coincidencia con sílabas válidas
+  const out = []; let chunk = [], chunkT = [];
+  const flush = (num) => {
+    const str = chunk.join('');
+    if (str) {
+      const n = str.length, best = new Array(n + 1).fill(null); best[0] = [];
+      for (let i = 0; i < n; i++) if (best[i]) for (let j = Math.min(n, i + 6); j > i; j--) { const sub = str.slice(i, j); if (BASESET.has(sub) && (!best[j] || best[j].length > best[i].length + 1)) best[j] = best[i].concat([[i, j]]); }
+      const segs = best[n] || [[0, n]];
+      segs.forEach(([a, b], k) => { let t = 0; for (let i = a; i < b; i++) if (chunkT[i]) t = chunkT[i]; if (k === segs.length - 1 && num) t = num; out.push({ base: str.slice(a, b), tone: t || 5 }); });
+    }
+    chunk = []; chunkT = [];
+  };
+  letters.forEach((l, i) => { if (l === ' ') flush(0); else if (l[0] === '#') flush(+l[1]); else { chunk.push(l); chunkT.push(tones[i]); } });
+  flush(0);
+  // erhua: "dian" + "r" -> "dianr"
+  const res = [];
+  out.forEach(o => { if (o.base === 'r' && res.length) { res[res.length - 1].base += 'r'; if (o.tone !== 5) res[res.length - 1].tone = o.tone; } else res.push(o); });
+  return res;
+};
+
+// ---------- frases (shadowing) ----------
+Core.levelsOf = (pts, range) => pts.map(p => ({ t: p.t, L: 1 + 4 * (p.v - range.lo) / Math.max(5, range.hi - range.lo) }));
+Core.evaluateSentence = async (x, s) => {
+  const n = s.syls.length, cal = Core.calibration(), range = Core.range();
+  const an = E.analyzeWord(x, n, { noiseDb: cal && cal.noise ? cal.noise.e + 3 : undefined });
+  if (!an.ok) return { heard: false, reason: 'No te he oído bien. Habla un poco más fuerte y cerca del micro.' };
+  const user = an.syls.flatMap(sy => sy.contour);
+  if (user.length < 8) return { heard: false, reason: 'Casi no he captado tu voz. Repite la frase entera.' };
+  const ref = await Core.refContour('s', s.id, n).catch(() => null);
+  const userL = Core.levelsOf(user, range);
+  let sim = null, refL = null;
+  if (ref) { refL = ref.syls.flatMap(sy => sy.pts); sim = E.contourSimilarity(refL, userL); }
+  const durU = user[user.length - 1].t - user[0].t, durR = refL ? refL[refL.length - 1].t - refL[0].t : null;
+  return { heard: true, an, userL, refL, ref, sim, durU, durR, user };
+};
+
+// ---------- tutor de conversación con Gemini ----------
+Core.SCENARIOS = [
+  { id: 'intro', name: 'Presentarse', desc: 'Nombre, de dónde eres, a qué te dedicas' },
+  { id: 'food', name: 'En el restaurante', desc: 'Pedir comida y bebida, preguntar el precio' },
+  { id: 'shop', name: 'De compras', desc: 'Precios, colores, regatear' },
+  { id: 'day', name: 'Tu día', desc: 'Qué haces hoy, horarios, el tiempo' },
+  { id: 'hobby', name: 'Aficiones', desc: 'Qué te gusta hacer, deportes, música' },
+  { id: 'free', name: 'Libre', desc: 'Habla de lo que quieras' },
+];
+Core.tutor = {
+  async turn(history, scenario, level, audioX, text) {
+    const key = Core.gemini.key(); if (!key) throw new Error('Añade tu clave de Gemini en Ajustes.');
+    let model = Core.gemini.model();
+    if (!model) { model = await Core.gemini.pickModel(key); store.set('gemini', { key, model }); }
+    const lv = level === 2 ? 'HSK 2-3 (frases de hasta 12 caracteres)' : 'HSK 1 (frases muy cortas, de 3 a 7 caracteres, vocabulario básico)';
+    const sys = 'Eres Lǎoshī, un profesor nativo de chino mandarín, amable y paciente, que practica conversación con un alumno hispanohablante. Tema: ' + scenario.name + ' (' + scenario.desc + '). Nivel del alumno: ' + lv + '. ' +
+      'Cada vez: 1) escucha con atención lo que dice el alumno (puede mezclar español si no sabe una palabra) y transcribe EXACTAMENTE lo que pronunció, con los tonos que realmente usó, aunque estén mal; 2) si hay errores de gramática, vocabulario o pronunciación, da la frase correcta; 3) comenta en español, en una o dos frases cortas, los tonos o sonidos que pronunció mal (sé concreto: qué sílaba y qué tono o sonido); si lo pronunció bien, díselo; 4) continúa la conversación con UNA sola frase corta en chino que termine con una pregunta fácil de contestar. ' +
+      'No escribas nada fuera del JSON. Responde SOLO con este JSON: {"oido":"caracteres de lo que dijo","oido_pinyin":"pinyin con marcas de lo que pronunció realmente","correcto":"frase correcta en caracteres o cadena vacía si estaba bien","correcto_pinyin":"pinyin con marcas o vacío","pronunciacion":"comentario en español","respuesta":"tu frase en caracteres","respuesta_pinyin":"pinyin con marcas","respuesta_num":"pinyin con números de tono, una sílaba por carácter, separado por espacios","respuesta_es":"traducción al español"}';
+    const contents = [];
+    history.forEach(h => {
+      if (h.role === 'user') contents.push({ role: 'user', parts: [{ text: 'Alumno: ' + (h.oido || h.text || '') }] });
+      else contents.push({ role: 'model', parts: [{ text: JSON.stringify({ respuesta: h.respuesta, respuesta_pinyin: h.respuesta_pinyin }) }] });
+    });
+    if (contents.length && contents[0].role === 'model') contents.unshift({ role: 'user', parts: [{ text: 'Empieza tú la conversación.' }] });
+    const parts = [];
+    if (audioX) { parts.push({ text: 'Esto es lo que ha dicho el alumno ahora (audio):' }); parts.push({ inline_data: { mime_type: 'audio/wav', data: b64(Core.toWav16k(audioX)) } }); }
+    else if (text) parts.push({ text: 'El alumno ha escrito: ' + text });
+    else parts.push({ text: 'Empieza tú la conversación con un saludo y una primera pregunta sobre el tema. Deja "oido", "correcto" y "pronunciacion" vacíos.' });
+    contents.push({ role: 'user', parts });
+    const body = { systemInstruction: { parts: [{ text: sys }] }, contents, generationConfig: { responseMimeType: 'application/json', temperature: 0.6 } };
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) { if (r.status === 404) store.set('gemini', { key }); throw new Error(r.status === 429 ? 'Has llegado al límite gratuito de Gemini por ahora. Prueba en unos minutos.' : 'Gemini respondió con un error (' + r.status + ').'); }
+    const j = await r.json();
+    const txt = ((j.candidates || [])[0] || {}).content?.parts?.map(p => p.text || '').join('') || '';
+    try { return JSON.parse(txt.replace(/^```json|```$/g, '').trim()); } catch (e) { throw new Error('No he entendido la respuesta de Gemini. Inténtalo otra vez.'); }
+  },
+  ttsCache: new Map(),
+  // Voz para el tutor: la del móvil si tiene chino; si no, la de Gemini
+  async say(text) {
+    if (Core.hasTTS()) return speak(text);
+    const key = Core.gemini.key(); if (!key) return false;
+    try {
+      let buf = this.ttsCache.get(text);
+      if (!buf) {
+        const g = store.get('gemini', {});
+        let model = g.ttsModel;
+        if (!model) {
+          const lr = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=' + encodeURIComponent(key)); const lj = await lr.json();
+          model = (lj.models || []).map(m => m.name.replace('models/', '')).filter(n => /tts/.test(n) && /flash/.test(n)).sort().reverse()[0];
+          if (!model) return false; store.set('gemini', Object.assign({}, g, { ttsModel: model }));
+        }
+        const body = { contents: [{ parts: [{ text: 'Lee en chino mandarín estándar, despacio y claro: ' + text }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } } } };
+        const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!r.ok) return false;
+        const j = await r.json();
+        const part = ((j.candidates || [])[0] || {}).content?.parts?.find(p => p.inlineData || p.inline_data);
+        const d = part && (part.inlineData || part.inline_data); if (!d) return false;
+        const bin = atob(d.data), n = bin.length >> 1, pcm = new Float32Array(n);
+        for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8); if (v >= 32768) v -= 65536; pcm[i] = v / 32768; }
+        const rate = +((d.mimeType || d.mime_type || '').match(/rate=(\d+)/) || [0, 24000])[1];
+        const c = Core.ctx(); buf = c.createBuffer(1, n, rate); buf.copyToChannel(pcm, 0); this.ttsCache.set(text, buf);
+      }
+      await playBuffer(buf); return true;
+    } catch (e) { return false; }
+  },
+};
+
 // WAV 16 kHz para enviar a Gemini
 Core.toWav16k = x => {
   const y = E.resample(x, E.SR, 16000), n = y.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);

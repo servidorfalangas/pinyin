@@ -20,9 +20,15 @@ Cuando no está segura, la app lo dice ("No lo tengo claro") en vez de inventars
 
 - **Ruta de pronunciación:** tonos (con pares de tonos, sandhi y tono neutro), aspiración, posición de la lengua, vocales difíciles y nasales.
 - **Ruta de vocabulario:** 201 palabras (HSK 1 y algunas de HSK 2) en 11 unidades.
-- **Tabla de pinyin** con todas las sílabas en los 4 tonos, dos voces nativas, explicaciones comparando con el español y el inglés, y animación de la boca en corte lateral.
-- **Repaso espaciado** de lo que te ha costado.
-- **Segunda opinión con Gemini** (opcional, con tu propia clave gratuita).
+- **Practicar:**
+  - Repaso espaciado y **puntos débiles**: arma una sesión con lo que peor te sale (oír, decir y escribir).
+  - **Parejas de tonos:** las 20 combinaciones con 120 palabras grabadas por nativos y un mapa de cómo te sale cada una.
+  - **Test de escucha** (20 preguntas: tonos, parejas, consonantes, vocales, palabras y frases) con historial, y **entrenamiento del oído** por partes.
+  - **Dictado** de sílabas, palabras y frases, con corrección de inicial, final y tono.
+  - **Shadowing** con 36 frases cortas: compara la melodía de toda la frase y el ritmo.
+  - **Conversación con un tutor de Gemini** (con tu propia clave gratuita): te entiende por voz, te corrige y te dice qué tonos fallaste.
+- **Tabla de pinyin** con todas las sílabas en los 4 tonos, dos voces nativas, un carácter de ejemplo por tono, trampas de escritura marcadas, sílabas con las que se confunde, tu mapa de resultados, explicaciones comparando con el español y el inglés, y animación de la boca en corte lateral.
+- **Ver el aire:** en las consonantes con soplo se dibuja la onda de tu voz junto a la del nativo, con el soplo resaltado.
 
 Todo funciona en el móvil, sin cuentas y sin enviar tu voz a ningún servidor (salvo si pides la opinión de Gemini).
 
@@ -34,5 +40,7 @@ Abre la dirección en Chrome → menú ⋮ → **Instalar aplicación** (o "Aña
 
 - Voz 1 (sílabas): Chen Wang · Palabras: Yue Tan — proyecto [audio-cmn](https://github.com/hugolpz/audio-cmn) de Hugo Lopez, licencia CC BY-SA.
 - Voz 2 (sílabas): [mp3-chinese-pinyin-sound](https://github.com/davinfifield/mp3-chinese-pinyin-sound), dominio público.
+- Frases: voz sintética generada con [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) y el modelo Matcha zh-baker.
+- Lista de palabras HSK para elegir las parejas de tonos: [complete-hsk-vocabulary](https://github.com/drkameleon/complete-hsk-vocabulary) (MIT).
 
 Los audios se han recortado, normalizado y empaquetado en `audio/*.mp3` (se distribuyen bajo la misma licencia CC BY-SA en el caso de audio-cmn).

@@ -508,7 +508,34 @@ function retroflexProb(fric) {
   return logisticLR(MODELS.retro, [fric.low, fric.mid, fric.high, fric.centroid / 1000, fric.peak / 1000]);
 }
 
-const API = { analyzeWord, toneOf, retroflexProb, softmaxLR, logisticLR, toneFeatureVec, setModels(m) { MODELS = m; }, get MODELS() { return MODELS; }, SR, resample, frames, speechRegion, pitchTrack, viterbiPitch, cleanContour, resampleContour, toLevels, toneFeatures, classifyTone,
+// ---------- parecido de melodía entre dos frases (DTW) ----------
+// a, b: listas de {t, L} (niveles 1-5). Devuelve { score 0..1, mad, pathA, pathB }
+function contourSimilarity(a, b, opts = {}) {
+  const N = opts.n || 80;
+  const rs = c => { if (c.length < 2) return []; const t0 = c[0].t, t1 = c[c.length - 1].t; const out = []; let j = 0;
+    for (let k = 0; k < N; k++) { const t = t0 + (t1 - t0) * k / (N - 1); while (j < c.length - 2 && c[j + 1].t < t) j++; const p = c[j], q = c[j + 1]; const f = q.t > p.t ? Math.min(1, Math.max(0, (t - p.t) / (q.t - p.t))) : 0; out.push(p.L + (q.L - p.L) * f); } return out; };
+  const A = rs(a), B = rs(b);
+  if (!A.length || !B.length) return null;
+  // centra en la media para no castigar una voz un poco más alta o más baja en general
+  const ma = mean(A), mb = mean(B), A2 = A.map(v => v - ma), B2 = B.map(v => v - mb);
+  const W = Math.round(N * 0.1), INF = 1e9;
+  const Dm = Array.from({ length: N + 1 }, () => new Float64Array(N + 1).fill(INF)); Dm[0][0] = 0;
+  for (let i = 1; i <= N; i++) for (let j = Math.max(1, i - W); j <= Math.min(N, i + W); j++) {
+    const c = Math.abs(A2[i - 1] - B2[j - 1]);
+    Dm[i][j] = c + Math.min(Dm[i - 1][j] + 0.15, Dm[i][j - 1] + 0.15, Dm[i - 1][j - 1]);
+  }
+  // camino
+  let i = N, j = N, steps = 0; const errs = new Float64Array(N);
+  while (i > 0 && j > 0) {
+    errs[i - 1] = Math.max(errs[i - 1], Math.abs(A2[i - 1] - B2[j - 1])); steps++;
+    const d = Dm[i - 1][j - 1], u = Dm[i - 1][j], l = Dm[i][j - 1];
+    if (d <= u && d <= l) { i--; j--; } else if (u <= l) i--; else j--;
+  }
+  const mad = Dm[N][N] / steps;
+  return { score: Math.max(0, Math.min(1, 1 - (mad - 0.3) / 0.9)), mad, errs: Array.from(errs), offset: ma - mb };
+}
+
+const API = { contourSimilarity, analyzeWord, toneOf, retroflexProb, softmaxLR, logisticLR, toneFeatureVec, setModels(m) { MODELS = m; }, get MODELS() { return MODELS; }, SR, resample, frames, speechRegion, pitchTrack, viterbiPitch, cleanContour, resampleContour, toLevels, toneFeatures, classifyTone,
   noiseSpectrum, spectralFeatures, formantTrack, analyzeSyllable, vowelFormants, median, pct, mean, st, hz,
   setTemplates(t) { TEMPLATES = t; }, get TEMPLATES() { return TEMPLATES; } };
 if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.PYE = API;
