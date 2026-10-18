@@ -6,21 +6,23 @@ Entrenador de pronunciación de chino mandarín para hispanohablantes. Lo más i
 
 ## Qué mide
 
-| Qué | Cómo lo mide | Fiabilidad con voces nativas |
+Cifras medidas con las grabaciones nativas de la app (dos voces, en silencio y con ruido de fondo). Para que las comparaciones con tu voz sean justas, la calibración guarda tus a, i, u y tus s, sh.
+
+| Qué | Cómo lo mide | Fiabilidad |
 |---|---|---|
-| Tonos 1–4 | Curva de tono (YIN + Viterbi, con corrección de errores de octava) normalizada a tu rango de voz. Sílabas sueltas: modelo entrenado con dos voces nativas. Palabras: red pequeña entrenada con 5.400 palabras nativas | 94–99 % en sílabas sueltas; ~95 % sílaba a sílaba en palabras nativas no vistas al entrenar |
-| Aire: b/p, d/t, g/k, z/c, zh/ch, j/q | Duración del soplo entre que empieza el ruido y empieza la voz | ~90 % |
-| Lengua: z/zh, c/ch, s/sh, j/q/x | Espectro del siseo (energía grave = lengua doblada) + tu propia s/sh de la calibración | 85–90 % (≈95 % cuando está segura) |
-| ü frente a u, la e china, la "i" de zi/zhi, er | Formantes de la vocal comparados con tus a/i/u | Muy clara para ü/u e i; buena para e y er |
-| -n frente a -ng | Formantes al final de la sílaba con un modelo entrenado | an/ang y ian/iang ~93 %, en/eng y uan/uang ~85 %, in/ing difícil |
+| Tonos 1–4 | Curva de tono (YIN + Viterbi, con corrección de errores de octava) normalizada a tu rango de voz. Palabras: red pequeña entrenada con 5.400 palabras nativas | Muy alta: 94–99 % en sílabas sueltas, ~95 % en palabras |
+| Aire: b/p, d/t, g/k, z/c, zh/ch, j/q | Duración del soplo entre el ruido y la voz, con límites distintos según la vocal que sigue | Alta. Con ruido de fondo avisa en vez de suspender |
+| Lengua: z/zh, c/ch, s/sh, j/q/x | Espectro del siseo comparado con tu propia s y sh | Buena para delante/atrás (~85–90 %). j/q/x frente a z/c/s no se distingue bien |
+| ü frente a u, la e china, la "i" de zi/zhi | Perfil espectral de la vocal comparado con tus a, i, u | Alta (~90–97 %) |
+| er | Bajada del tercer formante | Aceptable |
+| -n frente a -ng | Calidad de la vocal antes de la nasal | Aproximada (75–90 % según la pareja). in/ing nunca se da por mala |
+| r china | No se mide | La app lo dice y te pide comparar con el nativo |
 
-Todas las grabaciones de referencia se han revisado con el mismo analizador: de cada sílaba suena la grabación con el tono más claro, las que no suenan al tono correcto no se usan, y si una referencia no es fiable se dibuja la curva modelo del tono en vez de la de la grabación.
-
-Cuando no está segura, la app lo dice ("No lo tengo claro") en vez de inventarse un veredicto.
+Si lo que estás practicando sale mal, el resultado es "Otra vez". Si algo no se ha podido medir, la app lo dice en vez de darlo por bueno. Y si en una sílaba concreta hasta las grabaciones nativas fallan una medida, esa medida no te suspende.
 
 ## Contenido
 
-- **Ruta de pronunciación:** tonos (con pares de tonos, sandhi y tono neutro), aspiración, posición de la lengua, vocales difíciles y nasales.
+- **Ruta de pronunciación:** tonos (cambios de tono, medio tercer tono, parejas, tono neutro y preguntas), vocales (e china, ü, la "i" de zi/zhi, er, erhua, leer el pinyin), aspiración, posición de la lengua y nasales.
 - **Ruta de vocabulario:** 201 palabras (HSK 1 y algunas de HSK 2) en 11 unidades.
 - **Practicar:**
   - Repaso espaciado y **puntos débiles**: arma una sesión con lo que peor te sale (oír, decir y escribir).

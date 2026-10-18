@@ -36,3 +36,10 @@ Todo esto está en la rama `wip-perfeccion`, que NO se ha publicado. `main` (lo 
 3. Volver a pasar `cd /home/claude/reg && python3 reg.py /home/claude/pinyin new.json all && python3 summ.py new.json`, y probar las pantallas con Playwright: lecciones nuevas, el resultado de un intento y la calibración.
 4. Actualizar el README: la tabla "Qué mide" con la fiabilidad real (nasales aproximadas; la r no se mide).
 5. Hacer merge a `main` y push. Reconstruir el artefacto desde `index.html` y volver a publicarlo con los ficheros cambiados.
+
+## Actualización 19-10-2026
+- Hecho: voz 1 recodificada sin `afftdn`; las 9 grabaciones cuyo tono se estropeó vuelven a la versión anterior (`enc_old`). Añadido `D.natfail`: si la grabación nativa falla una medida, esa voz va detrás, y si fallan todas las voces de la sílaba, no se suspende por esa medida. README actualizado. Publicado en `main`.
+- Pendiente:
+  - prueba completa en el navegador (lecciones nuevas, pantalla de resultado, calibración nueva);
+  - volver a publicar el artefacto de Claude, que sigue en la versión anterior;
+  - recalcular `natfail` con `reg.py` (se calculó antes de recodificar la voz 1).

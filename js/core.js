@@ -135,7 +135,9 @@ Core.recQuality = (bank, syl) => { const q = (D.q || {})[syl]; if (!q || !D.audi
 Core.voicesFor = syl => {
   const pref = Core.voice();
   const have = ['v1', 'v2'].filter(b => D.audio[b][syl]);
-  const byQ = have.slice().sort((a, b) => Core.recQuality(b, syl) - Core.recQuality(a, syl));
+  // si la grabación nativa falla alguna medida (p. ej. casi sin aire), va detrás
+  const fails = b => Object.values((D.natfail || {})[syl] || {}).some(f => f[b === 'v1' ? 0 : 1]);
+  const byQ = have.slice().sort((a, b) => (fails(a) - fails(b)) || (Core.recQuality(b, syl) - Core.recQuality(a, syl)));
   if ((pref === 'v1' || pref === 'v2') && have.includes(pref) && Core.recQuality(pref, syl) >= QOK) return [pref].concat(byQ.filter(b => b !== pref));
   return byQ;
 };
@@ -480,6 +482,8 @@ Core.evaluateSyllable = (x, syl, opts = {}) => {
       }
     }
   }
+  // la r china todavía no se puede medir con fiabilidad: se dice claramente
+  if (sp.ini === 'r' && sp.canon !== 'i-retro') checks.push({ key: 'rinfo', label: 'La r', state: 'info', msg: 'La r china no la puedo comprobar automáticamente. Pulsa «Comparar» y fíjate en que no suene a l ni vibre: lengua levantada hacia atrás, sin tocar, como una sh con voz.' });
   // sílaba sin nasal: si se oye una n/ng al final, es otra sílaba (ba ≠ ban)
   if (!(sp.canon in NASAL_FAM) && !/n$|ng$/.test(sp.canon) && cal && cal.vowels && cal.vowels.a && cal.vowels.a.vb && BM.nasal_coda && (opts.focus || []).length) {
     const vb2 = out.bands || E.vowelBands(x, an);
@@ -487,6 +491,9 @@ Core.evaluateSyllable = (x, syl, opts = {}) => {
   }
   // orden: lo que se está practicando primero
   const focus = opts.focus || [];
+  // si todas las voces nativas de esta sílaba fallan una medida, esa medida no es fiable aquí: no se suspende por ella
+  const nfs = (D.natfail || {})[syl] || {}, nVoices = ['v1', 'v2'].filter(b => D.audio[b][syl]).length;
+  checks.forEach(ch => { const f = nfs[ch.key]; if (f && ch.state === 'bad' && f[0] + f[1] >= nVoices) { ch.state = 'unsure'; ch.msg += ' (En esta sílaba la medida es poco fiable: compara con el nativo.)'; } });
   // lo que se practica y no se ha podido medir: se dice, y no cuenta como aprobado
   const applies = { asp: sp.ini in ASP, retro: sp.ini in RETRO_SET, vowel: ['v', 've', 'van', 'vn', 'e', 'i-apical', 'i-retro', 'er'].includes(sp.canon) || (sp.canon === 'u' && !!opts.checkU), nasal: sp.canon in NASAL_FAM };
   const NA = { r: 'la r', asp: 'el aire', retro: 'la posición de la lengua', vowel: 'la vocal', nasal: 'la final -n / -ng' };
