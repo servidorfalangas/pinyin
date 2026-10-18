@@ -1,7 +1,7 @@
 /* Guarda la app en el móvil para que funcione sin conexión */
-const CACHE = 'pinyin-v1';
+const CACHE = 'pinyin-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'js/data.js', 'js/engine.js', 'js/mouth.js', 'js/core.js', 'js/content.js', 'js/ui.js',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'audio/v1.bin', 'audio/v2.bin', 'audio/w.bin'];
+  'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'audio/v1.mp3', 'audio/v2.mp3', 'audio/w.mp3'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
@@ -13,6 +13,6 @@ self.addEventListener('fetch', e => {
     return;
   }
   // código: red primero (para recibir actualizaciones); audio: caché primero
-  if (/\.bin$/.test(url.pathname)) e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+  if (/audio\/.*\.mp3$/.test(url.pathname)) e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
   else e.respondWith(fetch(e.request).then(r => { const cp = r.clone(); caches.open(CACHE).then(c => c.put(e.request, cp)); return r; }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
 });

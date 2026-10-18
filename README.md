@@ -35,4 +35,4 @@ Abre la dirección en Chrome → menú ⋮ → **Instalar aplicación** (o "Aña
 - Voz 1 (sílabas): Chen Wang · Palabras: Yue Tan — proyecto [audio-cmn](https://github.com/hugolpz/audio-cmn) de Hugo Lopez, licencia CC BY-SA.
 - Voz 2 (sílabas): [mp3-chinese-pinyin-sound](https://github.com/davinfifield/mp3-chinese-pinyin-sound), dominio público.
 
-Los audios se han recortado, normalizado y empaquetado en `audio/*.bin` (se distribuyen bajo la misma licencia CC BY-SA en el caso de audio-cmn).
+Los audios se han recortado, normalizado y empaquetado en `audio/*.mp3` (se distribuyen bajo la misma licencia CC BY-SA en el caso de audio-cmn).

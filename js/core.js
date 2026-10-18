@@ -88,7 +88,7 @@ Core.ctx = () => {
 };
 const bins = {}, decoded = new Map();
 function loadBin(name) {
-  if (!bins[name]) bins[name] = fetch('audio/' + name + '.bin').then(r => { if (!r.ok) throw new Error('audio'); return r.arrayBuffer(); });
+  if (!bins[name]) bins[name] = fetch('audio/' + name + '.mp3').then(r => { if (!r.ok) throw new Error('audio'); return r.arrayBuffer(); });
   return bins[name];
 }
 Core.preload = () => { loadBin('v1').catch(() => {}); };
