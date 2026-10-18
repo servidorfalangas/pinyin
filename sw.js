@@ -1,5 +1,5 @@
 /* Guarda la app en el móvil para que funcione sin conexión */
-const CACHE = 'pinyin-v3';
+const CACHE = 'pinyin-v4';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'js/data.js', 'js/engine.js', 'js/mouth.js', 'js/core.js', 'js/content.js', 'js/ui.js', 'js/practice.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'audio/v1.mp3', 'audio/v2.mp3', 'audio/w.mp3', 'audio/s.mp3'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });

@@ -8,11 +8,13 @@ Entrenador de pronunciación de chino mandarín para hispanohablantes. Lo más i
 
 | Qué | Cómo lo mide | Fiabilidad con voces nativas |
 |---|---|---|
-| Tonos 1–4 | Curva de tono (YIN + Viterbi) normalizada a tu rango de voz y clasificada con un modelo entrenado con grabaciones nativas | 94–99 % en sílabas sueltas, ~87 % sílaba a sílaba dentro de palabras |
+| Tonos 1–4 | Curva de tono (YIN + Viterbi, con corrección de errores de octava) normalizada a tu rango de voz. Sílabas sueltas: modelo entrenado con dos voces nativas. Palabras: red pequeña entrenada con 5.400 palabras nativas | 94–99 % en sílabas sueltas; ~95 % sílaba a sílaba en palabras nativas no vistas al entrenar |
 | Aire: b/p, d/t, g/k, z/c, zh/ch, j/q | Duración del soplo entre que empieza el ruido y empieza la voz | ~90 % |
 | Lengua: z/zh, c/ch, s/sh, j/q/x | Espectro del siseo (energía grave = lengua doblada) + tu propia s/sh de la calibración | 85–90 % (≈95 % cuando está segura) |
 | ü frente a u, la e china, la "i" de zi/zhi, er | Formantes de la vocal comparados con tus a/i/u | Muy clara para ü/u e i; buena para e y er |
 | -n frente a -ng | Formantes al final de la sílaba con un modelo entrenado | an/ang y ian/iang ~93 %, en/eng y uan/uang ~85 %, in/ing difícil |
+
+Todas las grabaciones de referencia se han revisado con el mismo analizador: de cada sílaba suena la grabación con el tono más claro, las que no suenan al tono correcto no se usan, y si una referencia no es fiable se dibuja la curva modelo del tono en vez de la de la grabación.
 
 Cuando no está segura, la app lo dice ("No lo tengo claro") en vez de inventarse un veredicto.
 

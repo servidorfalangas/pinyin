@@ -112,10 +112,25 @@ function playBuffer(buf, rate = 1) {
   return new Promise(r => { src.onended = r; });
 }
 Core.playBuffer = playBuffer;
-Core.voice = () => store.get('settings', {}).voice || 'v1';
+Core.voice = () => store.get('settings', {}).voice || 'auto';
+// Calidad de cada grabación (0-1): cuánto se parece su tono al que debería tener. Por debajo de 0,45 no se usa.
+const QOK = 0.45;
+Core.recQuality = (bank, syl) => { const q = (D.q || {})[syl]; if (!q || !D.audio[bank][syl]) return 0; return bank === 'v1' ? q[0] : q[1]; };
+// Orden de voces para una sílaba: la elegida si su grabación es buena; si no, la más clara
+Core.voicesFor = syl => {
+  const pref = Core.voice();
+  const have = ['v1', 'v2'].filter(b => D.audio[b][syl]);
+  const byQ = have.slice().sort((a, b) => Core.recQuality(b, syl) - Core.recQuality(a, syl));
+  if ((pref === 'v1' || pref === 'v2') && have.includes(pref) && Core.recQuality(pref, syl) >= QOK) return [pref].concat(byQ.filter(b => b !== pref));
+  return byQ;
+};
+Core.sylOK = syl => ['v1', 'v2'].some(b => Core.recQuality(b, syl) >= QOK);
+// Una grabación de palabra es fiable para ejercicios de oído si todas sus sílabas suenan al tono esperado
+Core.wordAudioOK = w => !!(w && D.audio.w[w.h] && !((D.wq || {})[w.h] || []).includes(0));
+Core.refVoice = syl => { const v = Core.voicesFor(syl)[0]; return v && Core.recQuality(v, syl) >= QOK ? v : null; };
 // Reproduce una sílaba ("ma3"), probando la voz elegida y luego la otra
 Core.playSyl = async (syl, opts = {}) => {
-  const order = opts.voice ? [opts.voice] : [Core.voice(), Core.voice() === 'v1' ? 'v2' : 'v1'];
+  const order = opts.voice ? [opts.voice] : Core.voicesFor(syl);
   for (const v of order) { const b = await getBuffer(v, syl).catch(() => null); if (b) { await playBuffer(b, opts.rate || 1); return v; } }
   return speak(Core.markWord(syl));
 };
@@ -333,7 +348,7 @@ Core.evaluateSyllable = (x, syl, opts = {}) => {
     const ms = Math.round(an.noiseDur * 1000), stop = STOPS.includes(sp.ini);
     // antes de la "i" de zi/zhi la vocal también roza, así que el ruido dura más
     const apical = sp.canon === 'i-apical' || sp.canon === 'i-retro';
-    const lo = stop ? 35 : apical ? 115 : 95, hi = stop ? 60 : apical ? 150 : 118;
+    const lo = stop ? 35 : apical ? 132 : 95, hi = stop ? 60 : apical ? 155 : 118;
     const want = ASP[sp.ini] === 1;
     let state, msg;
     if (want) {
@@ -444,19 +459,25 @@ Core.evaluateWord = (x, w) => {
   out.an = an;
   if (!an.ok) { out.reason = 'No te he oído bien. Habla un poco más fuerte y cerca del micro.'; return out; }
   out.heard = true;
+  const wt = D.models.word ? E.wordTones(D.models.word, an.syls.map(s => s.contour), range) : an.syls.map(s => E.toneOf(s.contour, range, { context: true }));
   an.syls.forEach((s, i) => {
     const target = w.spoken[i];
     const res = { target, syl: w.syls[i], contour: s.contour, t0: s.t0, t1: s.t1 };
     if (target === 5) { res.state = 'skip'; res.msg = 'Neutro: corto y suave.'; }
     else {
-      const r = E.toneOf(s.contour, range, { context: true });
+      const r = wt[i];
       if (!r) { res.state = 'unsure'; res.msg = 'No he podido medir esta sílaba.'; }
-      else { res.heardAs = r.tone; res.r = r; res.state = r.tone === target ? 'ok' : 'bad'; res.msg = r.tone === target ? 'Bien.' : 'Ha sonado a ' + TONE_NAMES[r.tone] + '.'; }
+      else {
+        const pT = r.probs ? r.probs[target - 1] : 0;
+        res.heardAs = r.tone; res.r = r;
+        res.state = r.tone === target ? 'ok' : pT >= 0.25 ? 'unsure' : 'bad';
+        res.msg = r.tone === target ? 'Bien.' : res.state === 'unsure' ? 'Casi: suena un poco a ' + TONE_NAMES[r.tone] + '.' : 'Ha sonado a ' + TONE_NAMES[r.tone] + '.';
+      }
     }
     out.syls.push(res);
   });
   const graded = out.syls.filter(s => s.state !== 'skip');
-  out.score = graded.length ? graded.filter(s => s.state === 'ok').length / graded.length : 1;
+  out.score = graded.length ? graded.reduce((acc, s) => acc + (s.state === 'ok' ? 1 : s.state === 'unsure' ? 0.5 : 0), 0) / graded.length : 1;
   return out;
 };
 
@@ -475,8 +496,10 @@ Core.refContour = async (bank, key, nSyl) => {
     if (!an.ok) return null;
     const all = an.syls.flatMap(s => s.contour.map(p => p.v));
     const lo = Math.min(R.lo, E.pct(all, 0.03)), hi = Math.max(R.hi, E.pct(all, 0.97));
-    res = { t0: an.t0, t1: an.t1, syls: an.syls.map(s => ({ t0: s.t0, t1: s.t1, pts: s.contour.map(p => ({ t: p.t, L: 1 + 4 * (p.v - lo) / (hi - lo) })) })) };
+    const flags = bank === 'w' ? (D.wq || {})[key] : null;
+    res = { t0: an.t0, t1: an.t1, syls: an.syls.map((s, k) => ({ t0: s.t0, t1: s.t1, model: !!(flags && flags[k] === 0), pts: flags && flags[k] === 0 ? null : s.contour.map(p => ({ t: p.t, L: 1 + 4 * (p.v - lo) / (hi - lo) })) })) };
   } else {
+    if ((bank === 'v1' || bank === 'v2') && Core.recQuality(bank, key) < QOK) return null;
     const an = E.analyzeSyllable(x);
     if (!an.ok) return null;
     res = { pts: an.contour.map(p => ({ t: p.t, L: 1 + 4 * (p.v - R.lo) / (R.hi - R.lo) })) };

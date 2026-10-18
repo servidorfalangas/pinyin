@@ -20,14 +20,15 @@ function needCal(fn) { if (!Core.calibration()) { U.toast('Primero calibra tu vo
 const Q = {};
 Q.tone = (t) => {
   t = t || pick([1, 2, 3, 4]);
-  const base = pick(COMMON);
+  const okb = COMMON.filter(b => Core.sylOK(b + t));
+  const base = pick(okb.length ? okb : COMMON);
   return { type: 'listen', cat: 'tone', stat: 'L:tone:' + t, play: { syl: base + t }, prompt: '¿Qué tono has oído?',
     options: [1, 2, 3, 4].map(x => ({ value: x, label: 'tono ' + x, html: toneIcon(x, false, true) + '<span class="sm">' + esc(C.TONES[x].shape) + '</span>' })), answer: t,
     compare: [1, 2, 3, 4].map(x => base + x) };
 };
 const DISTRACT = { 1: [4, 2], 2: [3, 1], 3: [2, 4], 4: [1, 3], 5: [1, 4] };
 Q.pair = (pat) => {
-  let pool = Core.pairs.filter(w => w.audio);
+  let pool = Core.pairs.filter(w => Core.wordAudioOK(w));
   if (pat) { const f = pool.filter(w => w.spoken.join('-') === pat); if (f.length) pool = f; }
   const w = pick(pool), ans = w.spoken.join('-');
   const opts = new Set([ans]);
@@ -89,8 +90,8 @@ const CATS = { tone: 'Tonos', pair: 'Parejas de tonos', cons: 'Consonantes', vow
 function answerOf(w) { return w.syls.map((s, i) => { const base = s.replace(/\d$/, ''), t = +s.slice(-1); const sp = w.spoken[i]; return { base, tone: t, alt: sp !== t ? [sp] : [] }; }); }
 const D = {};
 D.syl = () => { const base = pick(Core.sylBases.filter(b => !/^(_|hm|hng|ng$|m$|n$|ê)/.test(b) && b.length > 1)); const syl = U.sylWithTone(base); return { type: 'dictate', cat: 'dict', play: { syl }, answer: [{ base: syl.slice(0, -1), tone: +syl.slice(-1) }] }; };
-D.pair = () => { const w = pick(Core.pairs); return { type: 'dictate', cat: 'dict', play: { word: w }, answer: answerOf(w), show: w, hint: 'Escribe los tonos como se escriben en el diccionario (se aceptan también los cambios de tono).' }; };
-D.word = () => { const w = pick(Core.words.filter(x => x.audio)); return { type: 'dictate', cat: 'dict', play: { word: w }, answer: answerOf(w), show: w }; };
+D.pair = () => { const w = pick(Core.pairs.filter(x => Core.wordAudioOK(x))); return { type: 'dictate', cat: 'dict', play: { word: w }, answer: answerOf(w), show: w, hint: 'Escribe los tonos como se escriben en el diccionario (se aceptan también los cambios de tono).' }; };
+D.word = () => { const w = pick(Core.words.filter(x => Core.wordAudioOK(x))); return { type: 'dictate', cat: 'dict', play: { word: w }, answer: answerOf(w), show: w }; };
 D.sent = () => { const s = pick(Core.sentences.filter(x => x.sAudio)); return { type: 'dictate', cat: 'dict', play: { sent: s }, answer: answerOf(s), show: s, prompt: 'Escribe la frase en pinyin' }; };
 
 // ---------- puntos débiles ----------

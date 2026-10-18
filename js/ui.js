@@ -28,8 +28,9 @@ const I = {
 };
 
 // ---------- estado ----------
-const DEFAULT_SETTINGS = { voice: 'v1', theme: 'system', track: 'pron' };
+const DEFAULT_SETTINGS = { voice: 'auto', theme: 'system', track: 'pron' };
 let settings = Object.assign({}, DEFAULT_SETTINGS, store.get('settings', {}));
+if (!settings.v2voice) { settings.voice = 'auto'; settings.v2voice = 1; try { localStorage.setItem('py.settings', JSON.stringify(settings)); } catch (e) {} }
 let prog = store.get('prog', { done: {}, xp: 0, days: {}, stats: {}, byTone: {}, words: {} });
 let srs = store.get('srs', {});
 const saveSettings = () => store.set('settings', settings);
@@ -119,7 +120,7 @@ function plotLine(g, pts, x0, x1, yOf, color, width, dash) {
   pts.forEach((p, i) => { const x = x0 + (x1 - x0) * (p.t - t0) / Math.max(1e-3, t1 - t0); const y = yOf(p.L); if (i) g.lineTo(x, y); else g.moveTo(x, y); });
   g.stroke(); g.setLineDash([]);
 }
-function drawSyllable(cv, ref, user, color) {
+function drawSyllable(cv, ref, user, color, isModel) {
   const { g, w, h } = sizeCanvas(cv);
   const padL = 22, padT = 10, padB = 12;
   g.clearRect(0, 0, w, h);
@@ -246,11 +247,13 @@ function openLessonSheet(id) {
 // Construye los pasos de una lección
 function sylWithTone(base, prefer) {
   const ts = shuffle(prefer || [1, 2, 3, 4]);
+  for (const t of ts) if (Core.sylOK(base + t)) return base + t;
   for (const t of ts) if (Core.hasSyl(base + t)) return base + t;
   for (const t of [1, 2, 3, 4]) if (Core.hasSyl(base + t)) return base + t;
   return null;
 }
 function pairWithTone(a, b) {
+  for (const t of shuffle([1, 2, 3, 4])) if (Core.sylOK(a + t) && Core.sylOK(b + t)) return [a + t, b + t];
   for (const t of shuffle([1, 2, 3, 4])) if (Core.hasSyl(a + t) && Core.hasSyl(b + t)) return [a + t, b + t];
   return null;
 }
@@ -284,7 +287,7 @@ function buildSteps(l) {
     (l.words || []).forEach(h => { const w = Core.words.find(x => x.h === h); if (w) steps.push({ type: 'speak', target: wordTarget(w) }); });
   } else if (l.kind === 'pairs') {
     steps.push(...intro);
-    const pool = shuffle(Core.words.filter(w => w.syls.length === 2 && w.audio && !w.tones.includes(5)));
+    const pool = shuffle(Core.words.filter(w => w.syls.length === 2 && Core.wordAudioOK(w) && !w.tones.includes(5)));
     pool.slice(0, 4).forEach(w => {
       const pat = w.spoken.join('-');
       const opts = new Set([pat]); while (opts.size < 4) opts.add([1 + Math.floor(Math.random() * 4), 1 + Math.floor(Math.random() * 4)].join('-'));
@@ -481,14 +484,16 @@ function speakWidget(host, target, opts = {}) {
     const userColor = css(kind === 'ok' ? '--jade' : kind === 'unsure' ? '--amber' : '--cinnabar');
     if (target.type === 'syl' || res.single) {
       const r = res.single || res;
-      const ref = await Core.refContour(Core.hasSyl(r.syl) && window.PYDATA.audio[Core.voice()][r.syl] ? Core.voice() : (Core.voice() === 'v1' ? 'v2' : 'v1'), r.syl).catch(() => null);
-      drawSyllable(cv, ref && ref.pts, levelsOf(r.an.contour), userColor);
+      const rv = Core.refVoice(r.syl);
+      const ref = rv ? await Core.refContour(rv, r.syl).catch(() => null) : null;
+      drawSyllable(cv, ref ? ref.pts : idealContour(r.sp.tone), levelsOf(r.an.contour), userColor, !ref);
+      if (!ref) { const lg = $('.legend span', resHost); if (lg) lg.innerHTML = '<i style="background:var(--ref);height:6px"></i>Curva modelo'; }
       const aw = $('canvas.airwave', resHost);
       if (aw) drawAir(aw, r, st.last).catch(() => {});
     } else {
       const w = target.w;
       const ref = w.audio ? await Core.refContour('w', w.h, w.syls.length).catch(() => null) : null;
-      const refSyls = ref ? ref.syls.map(s => s.pts) : w.spoken.map(t => idealContour(t));
+      const refSyls = ref ? ref.syls.map((s, k) => s.pts || idealContour(w.spoken[k])) : w.spoken.map(t => idealContour(t));
       const userSyls = res.syls.map(s => ({ pts: levelsOf(s.contour), color: css(s.state === 'ok' ? '--jade' : s.state === 'bad' ? '--cinnabar' : '--amber') }));
       drawWord(cv, refSyls, userSyls, w.spoken);
     }
@@ -517,7 +522,7 @@ function speakWidget(host, target, opts = {}) {
 }
 // Dibuja la onda del principio de la sílaba (nativo arriba, tú abajo) con el aire resaltado
 async function drawAir(cv, r, x) {
-  const bank = window.PYDATA.audio[Core.voice()][r.syl] ? Core.voice() : (Core.voice() === 'v1' ? 'v2' : 'v1');
+  const bank = Core.voicesFor(r.syl)[0];
   const buf = await Core.bufferOf(bank, r.syl).catch(() => null);
   const rows = [];
   if (buf) { const nx = Core.samplesOf(buf); const na = E.analyzeSyllable(nx); if (na.ok) rows.push({ label: 'Nativo', x: nx, an: na }); }
@@ -798,7 +803,7 @@ function openCalibration(after) {
     if (!s) return summary();
     body.innerHTML = dots() + '<div class="calib-step"><div class="eyebrow">' + esc(s.title) + '</div><div class="say">' + esc(s.say) + '</div><p>' + esc(s.text) + '</p>' + (s.syl ? '<button class="play-btn" data-pl>' + I.play + 'Escuchar</button>' : '') + '<button class="mic" data-rec aria-label="Grabar">' + I.mic + '</button><div class="mic-hint">' + (s.fixed ? 'Toca y ' + (s.id === 'noise' ? 'no digas nada.' : 'mantén el sonido hasta que pare.') : 'Toca y repite.') + '</div><div class="cal-msg"></div></div>';
     foot.innerHTML = '<button class="btn ghost" data-back' + (i === 0 ? ' disabled' : '') + '>Atrás</button><button class="btn" data-skipc>Saltar</button>';
-    if (s.syl) { setTimeout(() => Core.playSyl(s.syl, { voice: 'v1' }), 300); $('[data-pl]', body).addEventListener('click', () => Core.playSyl(s.syl, { voice: 'v1' })); }
+    if (s.syl) { setTimeout(() => Core.playSyl(s.syl), 300); $('[data-pl]', body).addEventListener('click', () => Core.playSyl(s.syl)); }
     const mic = $('[data-rec]', body), msg = $('.cal-msg', body);
     let busy = false;
     mic.addEventListener('click', async () => {
@@ -919,7 +924,7 @@ function openSylSheet(base, ini, fin, tone0) {
   const tones = [1, 2, 3, 4].filter(t => Core.hasSyl(base + t));
   let cur = tone0 || tones[0];
   let html = '<div class="tone-btns">' + [1, 2, 3, 4].map(t => { const ex = Core.example(base + t); return '<button class="btn" data-pt="' + t + '"' + (tones.includes(t) ? '' : ' disabled') + '><b>' + esc(Core.mark(base + t)) + '</b>' + toneIcon(t, true) + (ex ? '<span class="ex-char han">' + esc(ex[0]) + '</span>' + (ex[1] ? '<span class="ex-es">' + esc(ex[1]) + '</span>' : '') : '') + '</button>'; }).join('') + '</div>';
-  html += '<div class="row-btns"><button class="btn small" data-voice="v1">Voz 1</button><button class="btn small" data-voice="v2">Voz 2</button></div>';
+  html += '<div class="row-btns"><button class="btn small" data-voice="auto">Automática</button><button class="btn small" data-voice="v1">Voz 1</button><button class="btn small" data-voice="v2">Voz 2</button></div>';
   html += '<div class="row-btns">' + tones.map(t => '<button class="btn primary small" data-prac="' + t + '">' + I.mic.replace('<svg', '<svg width="16" height="16"') + 'Practicar ' + esc(Core.mark(base + t)) + '</button>').join('') + '</div>';
   const trap = trapNote(ini, fin);
   if (trap) html += '<div class="note"><b>Ojo, trampa de escritura:</b> ' + trap.text + '</div>';
@@ -939,7 +944,7 @@ function openSylSheet(base, ini, fin, tone0) {
   const setT = () => $$('[data-pt]', back).forEach(b => b.classList.toggle('sel-tone', +b.dataset.pt === cur));
   setV(); setT();
   $$('.mouth', back).forEach(m => { const mo = window.Mouth.build($('.mouth-host', m)); m._m = mo; const seq = window.Mouth.SEQ[m.dataset.seq]; if (seq) setTimeout(() => mo.play(seq), 300); });
-  const pv = s => Core.playSyl(s, { voice: window.PYDATA.audio[voice][s] ? voice : undefined });
+  const pv = s => (voice === 'auto' || Core.recQuality(voice, s) < 0.45) ? Core.playSyl(s) : Core.playSyl(s, { voice });
   back.addEventListener('click', async e => {
     const p = e.target.closest('[data-pt]'); if (p) { cur = +p.dataset.pt; setT(); pv(base + cur); return; }
     const vv = e.target.closest('[data-voice]'); if (vv) { voice = vv.dataset.voice; setV(); return; }
@@ -1017,7 +1022,7 @@ function renderSettings() {
   v.innerHTML = '<h2>Ajustes</h2>' +
     '<div class="panel"><h3>Tu voz</h3>' + (cal ? '<div class="kv"><span>Calibrada</span><b>' + new Date(cal.at).toLocaleDateString('es-ES') + '</b></div>' + (cal.range ? '<div class="kv"><span>Rango de tonos</span><b>' + Math.round(E.hz(cal.range.lo)) + '–' + Math.round(E.hz(cal.range.hi)) + ' Hz</b></div>' : '') : '<p class="muted">Aún no has calibrado tu voz.</p>') +
     '<button class="btn primary" data-cal>' + (cal ? 'Repetir calibración' : 'Calibrar ahora') + '</button></div>' +
-    '<div class="panel"><h3>Audio de referencia</h3><p class="muted">Dos voces nativas para las sílabas. Las palabras tienen una tercera voz.</p><div class="seg" role="group" aria-label="Voz">' + ['v1', 'v2'].map(k => '<button data-voice="' + k + '" aria-pressed="' + (settings.voice === k) + '">Voz ' + k.slice(1) + '</button>').join('') + '</div></div>' +
+    '<div class="panel"><h3>Audio de referencia</h3><p class="muted">Dos voces nativas para las sílabas (las palabras tienen una tercera). He analizado las 3.282 grabaciones de sílabas: en "Automática" suena siempre la que tiene el tono más claro, y las que no sonaban al tono correcto no se usan nunca.</p><div class="seg" role="group" aria-label="Voz">' + [['auto', 'Automática'], ['v1', 'Voz 1'], ['v2', 'Voz 2']].map(([k, l]) => '<button data-voice="' + k + '" aria-pressed="' + (settings.voice === k) + '">' + l + '</button>').join('') + '</div></div>' +
     '<div class="panel"><h3>Tema</h3><div class="seg" role="group" aria-label="Tema">' + [['system', 'Sistema'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([k, l]) => '<button data-theme="' + k + '" aria-pressed="' + (settings.theme === k) + '">' + l + '</button>').join('') + '</div></div>' +
     '<div class="panel"><h3>Segunda opinión con Gemini (opcional)</h3><p class="muted">La app evalúa todo en tu móvil, sin enviar nada. Con una clave de Gemini se activan dos extras: la segunda opinión después de cada intento y el tutor de conversación. El audio se envía a Google solo cuando usas esas funciones.</p><p class="muted"><b>Cómo conseguir la clave (gratis):</b> entra en aistudio.google.com con tu cuenta de Google → "Get API key" → "Create API key" y pégala aquí. Ojo: la suscripción de Gemini para estudiantes es para la app de Gemini y no incluye esta clave, pero la clave tiene un uso gratuito que sobra para practicar.</p>' +
     '<input class="text" id="gemKey" type="password" autocomplete="off" placeholder="Pega aquí tu clave de Gemini" value="' + esc(g.key || '') + '"><div class="row-btns"><button class="btn small" data-gsave>Guardar y probar</button>' + (g.key ? '<button class="btn small danger" data-gdel>Quitar</button>' : '') + '</div><div id="gemMsg" class="muted">' + (g.model ? 'Modelo: ' + esc(g.model) : '') + '</div></div>' +
@@ -1027,7 +1032,7 @@ function renderSettings() {
 }
 $('#v-settings').addEventListener('click', async e => {
   if (e.target.closest('[data-cal]')) return openCalibration();
-  const vv = e.target.closest('[data-voice]'); if (vv) { settings.voice = vv.dataset.voice; saveSettings(); renderSettings(); Core.playSyl('ma1', { voice: settings.voice }); return; }
+  const vv = e.target.closest('[data-voice]'); if (vv) { settings.voice = vv.dataset.voice; saveSettings(); renderSettings(); Core.playSyl('ma1', settings.voice === 'auto' ? {} : { voice: settings.voice }); return; }
   const th = e.target.closest('[data-theme]'); if (th) { settings.theme = th.dataset.theme; saveSettings(); applyTheme(); renderSettings(); return; }
   if (e.target.closest('[data-reset]')) { confirmReset = true; renderSettings(); return; }
   if (e.target.closest('[data-rno]')) { confirmReset = false; renderSettings(); return; }

@@ -129,6 +129,13 @@ function yinFrame(x, s0, W, minLag, maxLag) {
       cands.push({ f0: SR / lag, ap: b });
     }
   }
+  // penaliza los subarmónicos: si hay un candidato al doble (o triple) de frecuencia casi igual de periódico, el bueno es ese
+  cands.forEach(c => {
+    for (const d of cands) {
+      const r = d.f0 / c.f0;
+      if ((Math.abs(r - 2) < 0.12 || Math.abs(r - 3) < 0.15) && d.ap < c.ap + 0.18) { c.ap += 0.35; break; }
+    }
+  });
   cands.sort((p, q) => p.ap - q.ap);
   return cands.slice(0, 5);
 }
@@ -211,6 +218,10 @@ function cleanContour(track, t0, t1) {
     }
   }
   main.sort((a, b) => a.t - b.t);
+  // recorta la cola débil (reverberación, voz rota al final), que suele dar saltos falsos
+  const pkm = Math.max(...main.map(p => p.db));
+  while (main.length > 6 && main[main.length - 1].db < pkm - 24) main.pop();
+  while (main.length > 6 && main[0].db < pkm - 28) main.shift();
   return main;
 }
 
@@ -435,17 +446,29 @@ function analyzeWord(x, nSyl, opts = {}) {
   const groups = [];
   cands.forEach(c => { const g = groups[groups.length - 1]; if (g && c.i - g.end <= 1) { g.end = c.i; if (c.depth > g.best.depth) g.best = c; g.len++; } else groups.push({ start: c.i, end: c.i, best: c, len: 1 }); });
   groups.forEach(g => { g.score = g.best.depth + Math.min(10, g.len * 1.5); g.t = (path[g.start].t + path[g.end].t) / 2; });
-  // excluye fronteras demasiado cerca de los extremos de la parte sonora
-  const vt0 = voiced[0].t, vt1 = voiced[voiced.length - 1].t, minSyl = 0.07;
-  let pool = groups.filter(g => g.t > vt0 + minSyl && g.t < vt1 - minSyl).sort((p, q) => q.score - p.score);
+  // excluye fronteras demasiado cerca de los extremos y penaliza repartos muy desiguales
+  // (en chino las sílabas de una palabra duran parecido; sin esto, una y/w/l entre vocales se "come" media sílaba)
+  const vt0 = voiced[0].t, vt1 = voiced[voiced.length - 1].t, span = Math.max(0.05, vt1 - vt0);
+  const minSyl = Math.max(0.07, 0.38 * span / nSyl);
+  groups.forEach(g => {
+    const pos = (g.t - vt0) / span; let best = 1;
+    for (let k = 1; k < nSyl; k++) best = Math.min(best, Math.abs(pos - k / nSyl));
+    g.score2 = g.score - 30 * Math.max(0, best - 0.12) - (g.len === 1 && g.best.depth < 4 ? 2 : 0);
+  });
+  let pool = groups.filter(g => g.t > vt0 + minSyl && g.t < vt1 - minSyl).sort((p, q) => q.score2 - p.score2);
   const chosen = [];
   for (const g of pool) {
     if (chosen.length >= nSyl - 1) break;
+    if (g.score2 < -2) continue;
     if (chosen.every(c => Math.abs(c.t - g.t) > minSyl)) chosen.push(g);
   }
-  // si faltan fronteras, reparte el tiempo sonoro a partes iguales
+  // si faltan fronteras, completa con cortes repartidos en los huecos más largos
   let cuts = chosen.map(c => c.t).sort((p, q) => p - q);
-  if (cuts.length < nSyl - 1) { cuts = []; for (let k = 1; k < nSyl; k++) cuts.push(vt0 + (vt1 - vt0) * k / nSyl); }
+  while (cuts.length < nSyl - 1) {
+    const pts = [vt0, ...cuts, vt1]; let bi = 0, bl = 0;
+    for (let i = 0; i < pts.length - 1; i++) if (pts[i + 1] - pts[i] > bl) { bl = pts[i + 1] - pts[i]; bi = i; }
+    cuts.push((pts[bi] + pts[bi + 1]) / 2); cuts.sort((p, q) => p - q);
+  }
   const edges = [t0, ...cuts, t1];
   const syls = [];
   for (let k = 0; k < nSyl; k++) {
@@ -535,7 +558,31 @@ function contourSimilarity(a, b, opts = {}) {
   return { score: Math.max(0, Math.min(1, 1 - (mad - 0.3) / 0.9)), mad, errs: Array.from(errs), offset: ma - mb };
 }
 
-const API = { contourSimilarity, analyzeWord, toneOf, retroflexProb, softmaxLR, logisticLR, toneFeatureVec, setModels(m) { MODELS = m; }, get MODELS() { return MODELS; }, SR, resample, frames, speechRegion, pitchTrack, viterbiPitch, cleanContour, resampleContour, toLevels, toneFeatures, classifyTone,
+// ---------- tonos dentro de palabras (red pequeña entrenada con ~5.400 palabras nativas) ----------
+// contours: lista de contornos por sílaba ([{t, v}]); range: {lo, hi} de la voz. Devuelve por sílaba {tone, probs} o null.
+function wordTones(model, contours, range) {
+  const span = Math.max(5, range.hi - range.lo), n = contours.length;
+  const Ls = contours.map(c => c && c.length >= 4 ? resampleContour(c, 10).map(v => 1 + 4 * (v - range.lo) / span) : null);
+  const durs = contours.map(c => c && c.length >= 2 ? c[c.length - 1].t - c[0].t : 0);
+  const pos = durs.filter(d => d > 0), md = pos.length ? mean(pos) : 0.2;
+  return Ls.map((L, k) => {
+    if (!L) return null;
+    const prevE = k > 0 && Ls[k - 1] ? Ls[k - 1][9] : null, nextS = k < n - 1 && Ls[k + 1] ? Ls[k + 1][0] : null;
+    const seg = L.slice(1), mx = Math.max(...seg), mn = Math.min(...seg);
+    const f = L.concat([L[9] - L[1], L[5] - L[1], L[9] - L[5], mx - mn, seg.indexOf(mn) / 8, seg.indexOf(mx) / 8, mean(seg),
+      md > 0 ? durs[k] / md : 1, Math.min(durs[k], 0.6), k === 0 ? 1 : 0, k === n - 1 ? 1 : 0, n / 4,
+      prevE != null ? prevE : 0, prevE == null ? 1 : 0, prevE != null ? L[1] - prevE : 0, nextS != null ? nextS : 0, nextS == null ? 1 : 0]);
+    const x = f.map((v, i) => (v - model.mu[i]) / model.sd[i]);
+    const H = model.b1.length, h = new Array(H);
+    for (let j = 0; j < H; j++) { let z = model.b1[j]; for (let i = 0; i < x.length; i++) z += x[i] * model.W1[i][j]; h[j] = Math.tanh(z); }
+    const z = model.b2.slice(); for (let c = 0; c < 4; c++) for (let j = 0; j < H; j++) z[c] += h[j] * model.W2[j][c];
+    const m = Math.max(...z), e = z.map(v => Math.exp(v - m)), s = e.reduce((a, b) => a + b, 0), probs = e.map(v => v / s);
+    let tone = 1; probs.forEach((p, i) => { if (p > probs[tone - 1]) tone = i + 1; });
+    return { tone, probs, L, dur: durs[k] };
+  });
+}
+
+const API = { wordTones, contourSimilarity, analyzeWord, toneOf, retroflexProb, softmaxLR, logisticLR, toneFeatureVec, setModels(m) { MODELS = m; }, get MODELS() { return MODELS; }, SR, resample, frames, speechRegion, pitchTrack, viterbiPitch, cleanContour, resampleContour, toLevels, toneFeatures, classifyTone,
   noiseSpectrum, spectralFeatures, formantTrack, analyzeSyllable, vowelFormants, median, pct, mean, st, hz,
   setTemplates(t) { TEMPLATES = t; }, get TEMPLATES() { return TEMPLATES; } };
 if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.PYE = API;
