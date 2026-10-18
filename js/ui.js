@@ -72,13 +72,22 @@ function srsAdd(item, ok) {
 function dueItems() { const now = Date.now(); return Object.values(srs).filter(s => s.due <= now); }
 
 // ---------- dibujo ----------
-const CHAO = { 1: [5, 5], 2: [3, 5], 3: [2, 1, 4], 4: [5, 1], 5: [3, 3] };
+const CHAO = { 1: [5, 5], 2: [3, 5], 3: [2, 1, 4], 4: [5, 1], 5: [3, 3], '3h': [2, 1], '51': [2, 2], '52': [3, 3], '53': [4, 4], '54': [1.5, 1.5] };
+// Forma de cada tono dentro de una palabra: el 3 delante de otra sílaba solo baja (21) y la altura del neutro depende del tono anterior
+function contextTones(tones) {
+  return tones.map((t, i) => {
+    if (t === 3 && i < tones.length - 1) return '3h';
+    if (t === 5 && i > 0) { const p = tones[i - 1] === 5 ? 2 : tones[i - 1]; return '5' + p; }
+    return t;
+  });
+}
+function wordIcons(tones, small) { return contextTones(tones).map(k => toneIcon(k, small)).join(''); }
 const toneColor = t => css('--t' + t) || css('--jade');
 function toneIcon(t, small, big) {
-  const pts = CHAO[t] || [3, 3], w = 34, h = 26;
+  const pts = CHAO[t] || [3, 3], w = 34, h = 26, base = +String(t)[0];
   const xs = pts.map((_, i) => 4 + i * (w - 8) / (pts.length - 1)), ys = pts.map(v => h - 3 - (v - 1) * (h - 6) / 4);
   const d = 'M' + xs.map((x, i) => x.toFixed(1) + ' ' + ys[i].toFixed(1)).join(' L');
-  return '<svg class="toneicon" viewBox="0 0 34 26" aria-label="tono ' + t + '"' + (small ? ' style="width:26px;height:20px"' : big ? ' style="width:54px;height:40px"' : '') + '><line x1="2" y1="3" x2="32" y2="3"/><line x1="2" y1="23" x2="32" y2="23"/><path d="' + d + '" stroke="var(--t' + (t === 5 ? 2 : t) + ')"' + (t === 5 ? ' stroke-dasharray="2 4"' : '') + '/></svg>';
+  return '<svg class="toneicon" viewBox="0 0 34 26" aria-label="' + (base === 5 ? 'tono neutro' : 'tono ' + base) + '"' + (small ? ' style="width:26px;height:20px"' : big ? ' style="width:54px;height:40px"' : '') + '><line x1="2" y1="3" x2="32" y2="3"/><line x1="2" y1="23" x2="32" y2="23"/><path d="' + d + '" stroke="var(--t' + (base === 5 ? 2 : base) + ')"' + (base === 5 ? ' stroke-dasharray="2 4"' : '') + '/></svg>';
 }
 // Diagrama grande de los tonos en la escala de 5 alturas
 function toneChart(tones) {
@@ -122,19 +131,19 @@ function plotLine(g, pts, x0, x1, yOf, color, width, dash) {
 }
 function drawSyllable(cv, ref, user, color, isModel) {
   const { g, w, h } = sizeCanvas(cv);
-  const padL = 22, padT = 10, padB = 12;
+  const padL = 22, padT = 20, padB = 18;
   g.clearRect(0, 0, w, h);
   gridLevels(g, w, h, padL, padT, padB);
-  const yOf = L => padT + (5 - Math.max(0.6, Math.min(5.4, L))) * (h - padT - padB) / 4;
+  const yOf = L => padT + (5 - Math.max(0.5, Math.min(5.5, L))) * (h - padT - padB) / 4;
   if (ref) plotLine(g, ref, padL + 6, w - 10, yOf, css('--ref'), 7, null);
   if (user) plotLine(g, user, padL + 6, w - 10, yOf, color, 3.5, null);
 }
 function drawWord(cv, refSyls, userSyls, targets) {
   const { g, w, h } = sizeCanvas(cv);
-  const padL = 22, padT = 10, padB = 12, n = targets.length;
+  const padL = 22, padT = 20, padB = 18, n = targets.length;
   g.clearRect(0, 0, w, h);
   gridLevels(g, w, h, padL, padT, padB);
-  const yOf = L => padT + (5 - Math.max(0.6, Math.min(5.4, L))) * (h - padT - padB) / 4;
+  const yOf = L => padT + (5 - Math.max(0.5, Math.min(5.5, L))) * (h - padT - padB) / 4;
   const slot = (w - padL - 10) / n;
   for (let k = 0; k < n; k++) {
     const x0 = padL + 6 + k * slot, x1 = x0 + slot - 12;
@@ -157,6 +166,7 @@ function checkMeter(c) {
     const max = 260, lo = c.lo / max, hi = c.hi / max;
     return meter([{ to: lo, bg: c.want ? badc : good, label: 'sin aire' }, { to: hi, bg: mid, label: '' }, { to: 1, bg: c.want ? good : badc, label: 'con aire' }], c.ms / max, c.ms + ' ms');
   }
+  if (c.scale && isFinite(c.p)) { const lo = c.lo, hi = c.hi, inv = c.invert; return meter([{ to: lo, bg: inv ? good : badc, label: c.scale[0] }, { to: hi, bg: mid, label: '' }, { to: 1, bg: inv ? badc : good, label: c.scale[1] }], c.p); }
   if (c.key === 'retro') return meter([{ to: 0.38, bg: c.want ? badc : good, label: 'lengua delante' }, { to: 0.62, bg: mid, label: '' }, { to: 1, bg: c.want ? good : badc, label: 'doblada atrás' }], c.p);
   if (c.key === 'nasal') return meter([{ to: 0.4, bg: c.want ? badc : good, label: '-n' }, { to: 0.6, bg: mid, label: '' }, { to: 1, bg: c.want ? good : badc, label: '-ng' }], c.p);
   if (c.key === 'vowel' && isFinite(c.value)) {
@@ -202,11 +212,12 @@ function renderMap() {
   let html = '<div class="map-head"><div class="seg" role="group" aria-label="Recorrido">' +
     '<button data-track="pron" aria-pressed="' + (track === 'pron') + '">Pronunciación</button><button data-track="vocab" aria-pressed="' + (track === 'vocab') + '">Vocabulario</button></div></div>';
   if (!cal) html += '<div class="calib-banner"><p><b>Primero, calibra tu voz.</b> 30 segundos para que la app se adapte a tu tono y a tus vocales.</p><button class="btn primary small" data-act="calib">Calibrar</button></div>';
+  else if (!(cal.vowels && cal.vowels.a && cal.vowels.a.vb)) html += '<div class="calib-banner"><p><b>Repite la calibración.</b> He mejorado cómo se miden las vocales, la ü y las finales -n / -ng, y necesito volver a oír tus a, i, u (30 segundos).</p><button class="btn primary small" data-act="calib">Calibrar</button></div>';
   const offsets = [0, 46, 70, 46, 0, -46, -70, -46];
   let gi = 0;
   sections.forEach(sec => {
     const done = sec.lessons.filter(l => prog.done[l.id]).length;
-    html += '<div class="section"><div class="section-h"><div class="letter">' + esc(sec.id.replace('U', '')) + '</div><div><h2>' + esc(sec.title) + '</h2><p>' + esc(sec.sub) + '</p></div><div class="prog">' + done + '/' + sec.lessons.length + '</div></div><div class="path">';
+    html += '<div class="section"><div class="section-h"><div class="letter">' + esc(track === 'pron' ? String.fromCharCode(65 + sections.indexOf(sec)) : sec.id.replace('U', '')) + '</div><div><h2>' + esc(sec.title) + '</h2><p>' + esc(sec.sub) + '</p></div><div class="prog">' + done + '/' + sec.lessons.length + '</div></div><div class="path">';
     sec.lessons.forEach(l => {
       const i = list.findIndex(x => x.id === l.id), unlocked = isUnlocked(list, i), d = prog.done[l.id];
       const cls = d ? 'done' : unlocked ? 'unlocked' + (i === firstOpen ? ' current' : '') : '';
@@ -247,18 +258,28 @@ function openLessonSheet(id) {
 // Construye los pasos de una lección
 function sylWithTone(base, prefer) {
   const ts = shuffle(prefer || [1, 2, 3, 4]);
+  for (const t of ts) if (Core.sylOK(base + t) && Core.example(base + t)) return base + t;
   for (const t of ts) if (Core.sylOK(base + t)) return base + t;
-  for (const t of ts) if (Core.hasSyl(base + t)) return base + t;
-  for (const t of [1, 2, 3, 4]) if (Core.hasSyl(base + t)) return base + t;
+  for (const t of ts) if (Core.realSyl(base + t)) return base + t;
+  for (const t of [1, 2, 3, 4]) if (Core.realSyl(base + t)) return base + t;
   return null;
 }
 function pairWithTone(a, b) {
+  for (const t of shuffle([1, 2, 3, 4])) if (Core.sylOK(a + t) && Core.sylOK(b + t) && Core.example(a + t) && Core.example(b + t)) return [a + t, b + t];
   for (const t of shuffle([1, 2, 3, 4])) if (Core.sylOK(a + t) && Core.sylOK(b + t)) return [a + t, b + t];
-  for (const t of shuffle([1, 2, 3, 4])) if (Core.hasSyl(a + t) && Core.hasSyl(b + t)) return [a + t, b + t];
+  for (const t of shuffle([1, 2, 3, 4])) if (Core.realSyl(a + t) && Core.realSyl(b + t)) return [a + t, b + t];
   return null;
 }
 const sylTarget = (syl, focus) => ({ type: 'syl', syl, focus: focus || ['tone'] });
 const wordTarget = w => ({ type: 'word', w });
+function twoSyl() { const seen = new Set(); return Core.pairs.concat(Core.words).filter(w => w.syls.length === 2 && Core.wordAudioOK(w) && !seen.has(w.h) && seen.add(w.h)); }
+const patText = p => p.split('-').map(t => t === '5' ? 'neutro' : t).join(' + ');
+function pairExplain(w) {
+  let s = esc(w.h) + ' · ' + esc(Core.markWord(w.p)) + ' · ' + esc(w.es);
+  if (w.spoken[0] === 3 && w.syls.length > 1) s += '<br>Fíjate: el tono 3 delante de otra sílaba solo baja, no sube.';
+  else if (w.spoken[1] === 5) s += '<br>El neutro va corto y su altura depende del tono anterior.';
+  return s;
+}
 function wordFromPhrase(ph) { const syls = ph.p.split(' '); const tones = syls.map(s => +s.slice(-1)); const vw = Core.words.find(w => w.h === ph.h); return vw || { id: 'ph-' + ph.h, h: ph.h, p: ph.p, es: ph.es, syls, tones, spoken: Core.spokenTones(tones, ph.h), audio: false }; }
 function buildSteps(l) {
   const steps = [];
@@ -287,18 +308,41 @@ function buildSteps(l) {
     (l.words || []).forEach(h => { const w = Core.words.find(x => x.h === h); if (w) steps.push({ type: 'speak', target: wordTarget(w) }); });
   } else if (l.kind === 'pairs') {
     steps.push(...intro);
-    const pool = shuffle(Core.words.filter(w => w.syls.length === 2 && Core.wordAudioOK(w) && !w.tones.includes(5)));
+    // solo palabras que se dicen como se escriben: los cambios de tono se ven en su propia lección
+    const pool = shuffle(twoSyl().filter(w => !w.tones.includes(5) && w.spoken.join() === w.tones.join()));
     pool.slice(0, 4).forEach(w => {
       const pat = w.spoken.join('-');
       const opts = new Set([pat]); while (opts.size < 4) opts.add([1 + Math.floor(Math.random() * 4), 1 + Math.floor(Math.random() * 4)].join('-'));
-      steps.push({ type: 'listen', play: { word: w }, prompt: '¿Qué tonos tiene ' + w.h + '?', options: shuffle([...opts]).map(p => ({ value: p, html: '<span>' + p.split('-').map(t => toneIcon(+t, true)).join('') + '</span><span class="sm">' + p.replace('-', ' + ') + '</span>' })), answer: pat });
+      steps.push({ type: 'listen', play: { word: w }, prompt: '¿Qué tonos tiene ' + w.h + '?', options: shuffle([...opts]).map(p => ({ value: p, html: '<span>' + wordIcons(p.split('-').map(Number), true) + '</span><span class="sm">' + patText(p) + '</span>' })), answer: pat, explain: pairExplain(w) });
     });
     pool.slice(4, 10).forEach(w => steps.push({ type: 'speak', target: wordTarget(w) }));
+  } else if (l.kind === 'half3') {
+    steps.push(...intro);
+    const pool = shuffle(twoSyl().filter(w => w.tones[0] === 3 && w.spoken[0] === 3 && w.tones[1] !== 3));
+    const used = new Set();
+    [1, 2, 4, 5].forEach(t2 => { const w = pool.find(x => x.tones[1] === t2 && !used.has(x)); if (w) used.add(w); });
+    [...used].slice(0, 4).forEach(w => steps.push({ type: 'listen', play: { word: w }, prompt: '¿Qué tonos tiene ' + w.h + '?', options: ['3-1', '3-2', '3-4', '3-5'].map(p => ({ value: p, html: '<span>' + wordIcons(p.split('-').map(Number), true) + '</span><span class="sm">' + patText(p) + '</span>' })), answer: w.spoken.join('-'), explain: pairExplain(w) }));
+    pool.filter(w => !used.has(w)).slice(0, 4).concat([...used].slice(0, 2)).forEach(w => steps.push({ type: 'speak', target: wordTarget(w) }));
+  } else if (l.kind === 'intonation') {
+    steps.push(...intro);
+    const qs = Core.sentences.filter(s => s.sAudio && /[？?]/.test(s.h) && !/[吗呢吧]/.test(s.h.slice(-2)));
+    shuffle(qs).slice(0, 3).forEach(s => {
+      const k = s.syls.length - 1, t = s.spoken[k], ch = [...s.h.replace(/[^\u4e00-\u9fff]/g, '')].pop();
+      steps.push({ type: 'listen', play: { sent: s }, prompt: '¿Qué tono tiene ' + ch + ' al final de esta pregunta?', show: s, options: [1, 2, 3, 4].map(x => ({ value: x, html: toneIcon(x, false, true) + '<span class="sm">' + esc(C.TONES[x].shape) + '</span>' })), answer: t,
+        explain: esc(s.h) + ' · ' + esc(Core.markWord(s.p)) + '<br>Aunque es una pregunta, ' + esc(ch) + ' conserva su tono ' + t + '.' });
+    });
+    C.QUESTIONS.map(wordFromPhrase).forEach(w => steps.push({ type: 'speak', target: Object.assign(wordTarget(w), { note: 'Pregúntalo sin subir al final: la primera sílaba conserva su tono y 吗 va corto y flojo.' }) }));
+  } else if (l.kind === 'reading') {
+    steps.push(...intro);
+    shuffle(C.READ_LISTEN).slice(0, 4).forEach(([a, b]) => { const pr = pairWithTone(a, b); if (!pr) return; const ans = pick(pr); steps.push({ type: 'listen', play: { syl: ans }, prompt: '¿Cuál has oído?', options: pr.map(s => ({ value: s, html: '<span class="big">' + esc(Core.mark(s)) + '</span>' })), answer: ans, compare: pr }); });
+    shuffle(C.READ_DICT).slice(0, 5).forEach(base => { const syl = sylWithTone(base); if (syl) steps.push({ type: 'dictate', play: { syl }, answer: [{ base: syl.slice(0, -1), tone: +syl.slice(-1) }], prompt: 'Escríbelo en pinyin, como se escribe (no como suena)' }); });
   } else if (l.kind === 'sandhi') {
     steps.push(...intro);
     const ph = C.SANDHI.map(wordFromPhrase);
-    const nh = ph.find(w => w.h === '你好');
-    steps.push({ type: 'listen', play: { word: nh }, prompt: '¿Cómo se dice 你好 de verdad?', options: [{ value: 'a', html: '<span class="big">nǐ hǎo</span><span class="sm">3 + 3</span>' }, { value: 'b', html: '<span class="big">ní hǎo</span><span class="sm">2 + 3</span>' }], answer: 'b' });
+    const ask = (h, a, b, why) => { const w = ph.find(x => x.h === h); if (w) steps.push({ type: 'listen', play: { word: w }, prompt: '¿Cómo se dice ' + h + ' de verdad?', options: shuffle([{ value: 'a', html: '<span class="big">' + a + '</span><span class="sm">como se escribe</span>' }, { value: 'b', html: '<span class="big">' + b + '</span><span class="sm">con cambio</span>' }]), answer: 'b', explain: why }); };
+    ask('你好', 'nǐ hǎo', 'ní hǎo', 'Dos terceros tonos seguidos: el primero se dice como tono 2.');
+    ask('不是', 'bù shì', 'bú shì', '不 delante de tono 4 se dice bú.');
+    ask('一起', 'yī qǐ', 'yì qǐ', '一 delante de tono 1, 2 o 3 se dice yì.');
     shuffle(ph).slice(0, 7).forEach(w => steps.push({ type: 'speak', target: wordTarget(w) }));
   } else if (l.kind === 'neutral') {
     steps.push(...intro);
@@ -388,8 +432,9 @@ function helpFor(target) {
   if (target.focus && !target.focus.includes('tone')) cards.push(cards.shift());
   return cards.filter(Boolean);
 }
-function openHelp(target) {
-  const cards = helpFor(target);
+function openHelp(target, key) {
+  let cards = helpFor(target);
+  if (key) { const want = key === 'tone' ? (c => c.tones) : key === 'asp' || key === 'retro' ? (c => c.kind === 'ini') : (c => c.kind === 'fin'); cards = cards.filter(want).concat(cards.filter(c => !want(c))); }
   const back = openSheet('Cómo se hace', cards.map(introCardHTML).join(''));
   $$('.mouth', back).forEach(m => { const mo = window.Mouth.build($('.mouth-host', m)); m._m = mo; const seq = window.Mouth.SEQ[m.dataset.seq]; if (seq) setTimeout(() => mo.play(seq), 250); });
 }
@@ -400,12 +445,18 @@ function targetHTML(t) {
     const w = t.w;
     const diff = w.spoken.some((s, i) => s !== w.tones[i] && s !== 5);
     return '<div class="target"><div class="eyebrow">Di esta palabra</div><div class="hz">' + esc(w.h) + '</div><div class="py" style="font-size:clamp(2rem,10vw,2.8rem)">' + esc(Core.markWord(w.p)) + '</div>' +
-      '<div class="toneicons">' + w.spoken.map(s => toneIcon(s)).join('') + '</div>' +
+      '<div class="toneicons">' + wordIcons(w.spoken) + '</div>' +
       (diff ? '<div class="spoken">Se dice: ' + esc(w.syls.map((s, i) => Core.mark(s.replace(/\d$/, '') + w.spoken[i])).join(' ')) + '</div>' : '') +
-      '<div class="gloss">' + esc(w.es) + '</div></div>';
+      '<div class="gloss">' + esc(w.es) + '</div>' + (t.note ? '<p class="muted" style="margin-top:6px">' + esc(t.note) + '</p>' : '') + '</div>';
   }
   const sp = Core.split(t.syl);
   return '<div class="target"><div class="eyebrow">Di esta sílaba</div><div class="py">' + esc(Core.mark(t.syl)) + '</div><div class="toneicons">' + toneIcon(sp.tone) + '<span class="muted">' + esc(C.TONES[sp.tone] ? C.TONES[sp.tone].shape : '') + '</span></div></div>';
+}
+function gradedChecks(res, t) {
+  const focus = (t && t.focus) || ['tone'];
+  const all = (res.checks || []).filter(c => c.state !== 'info');
+  const g = all.filter(c => focus.includes(c.key) || c.key === 'tone');
+  return g.length ? g : all;
 }
 function speakWidget(host, target, opts = {}) {
   host.innerHTML = targetHTML(target) +
@@ -457,11 +508,11 @@ function speakWidget(host, target, opts = {}) {
   }
   function scoreOf(res, t) {
     if (t.type === 'word') return res.single ? scoreOf(res.single, { type: 'syl', focus: ['tone'] }) : res.score;
-    const focus = t.focus || ['tone'];
-    let graded = res.checks.filter(c => focus.includes(c.key) || c.key === 'tone');
-    if (!graded.length) graded = res.checks;
+    const graded = gradedChecks(res, t);
     if (!graded.length) return 1;
-    return graded.reduce((s, c) => s + (c.state === 'ok' ? 1 : c.state === 'unsure' ? 0.5 : 0), 0) / graded.length;
+    const v = graded.reduce((s, c) => s + (c.state === 'ok' ? 1 : c.state === 'bad' ? 0 : 0.5), 0) / graded.length;
+    // si lo que se practica sale mal, es "Otra vez" aunque lo demás esté bien
+    return graded.some(c => c.state === 'bad') ? Math.min(v, 0.45) : v;
   }
   async function renderResult(res, score) {
     const kind = score >= 0.99 ? 'ok' : score >= 0.5 ? 'unsure' : 'bad';
@@ -469,11 +520,16 @@ function speakWidget(host, target, opts = {}) {
     let html = '<div class="result"><div class="verdict ' + kind + '"><div class="mark">' + I[kind] + '</div><div><div class="big">' + big + '</div><div class="small">' + (kind === 'ok' ? 'Así se dice.' : 'Mira qué cambiar y repite.') + '</div></div></div>';
     if (target.type === 'syl' || res.single) {
       const r = res.single || res;
-      html += '<canvas class="contour"></canvas><div class="legend"><span><i style="background:var(--ref);height:6px"></i>Nativo</span><span><i style="background:var(--jade)"></i>Tú</span><span>1 = lo más grave de tu voz · 5 = lo más agudo</span></div>';
-      html += '<div class="checks">' + r.checks.map(c => '<div class="check"><span class="pill ' + c.state + '">' + esc(c.label) + '</span><div class="msg">' + esc(c.msg) + '</div>' + checkMeter(c) + '</div>').join('') + '</div>';
+      html += '<canvas class="contour"></canvas><div class="legend"><span><i style="background:var(--ref);height:6px"></i>Nativo</span><span><i style="background:var(--jade)"></i>Tú</span><span>1 = lo más grave de tu voz · 5 = lo más agudo</span></div><p class="muted small-note">Cada curva está ajustada a su voz (la del nativo a la suya, la tuya a tu calibración): compara la forma, no la altura exacta.</p>';
+      const g = gradedChecks(r, target.type === 'syl' ? target : { focus: ['tone'] }), rest = r.checks.filter(c => !g.includes(c));
+      const row = c => '<div class="check"><span class="pill ' + (c.state === 'na' ? 'unsure' : c.state) + '">' + esc(c.label) + '</span><div class="msg">' + esc(c.msg) + (c.rival ? ' <button class="link" data-a="rival" data-s="' + esc(c.rival) + '">Oír ' + esc(Core.mark(c.rival)) + '</button>' : '') + (c.state === 'bad' || c.state === 'unsure' ? ' <button class="link" data-a="helpk" data-k="' + c.key + '">¿Cómo se corrige?</button>' : '') + '</div>' + checkMeter(c) + '</div>';
+      if (r.sounded && r.sounded.length && kind === 'bad') html += '<div class="sounded">Ha sonado más a <b>' + r.sounded.map(s => esc(Core.mark(s))).join(' / ') + '</b> que a <b>' + esc(Core.mark(r.syl)) + '</b>. <button class="btn small" data-a="ab" data-s="' + esc(r.sounded[0]) + '">' + I.swap + 'Oír las dos</button></div>';
+      html += '<div class="checks">' + g.map(row).join('') + r.checks.filter(c => c.state === 'info').map(row).join('') + '</div>';
+      rest.splice(0, rest.length, ...rest.filter(c => c.state !== 'info'));
+      if (rest.length) html += '<details class="more-checks"><summary>Otros detalles (no cuentan en esta práctica)</summary><div class="checks">' + rest.map(row).join('') + '</div></details>';
       if (r.checks.some(c => c.key === 'asp')) html += '<div class="air"><div class="eyebrow">Mira el aire</div><canvas class="airwave"></canvas><div class="legend"><span><i style="background:var(--amber);height:8px"></i>Aire (soplo o roce)</span><span><i style="background:var(--jade);height:8px"></i>Voz</span></div></div>';
     } else {
-      html += '<canvas class="contour"></canvas><div class="syl-strip">' + res.syls.map((s, i) => '<div class="syl-box ' + (s.state === 'skip' ? '' : s.state) + '"><span class="s">' + esc(Core.mark(target.w.syls[i].replace(/\d$/, '') + s.target)) + '</span>' + toneIcon(s.target, true) + '<small>' + esc(s.state === 'skip' ? 'neutro' : s.state === 'ok' ? 'bien' : s.heardAs ? 'sonó a tono ' + s.heardAs : '¿?') + '</small></div>').join('') + '</div>';
+      html += '<canvas class="contour"></canvas><div class="syl-strip">' + res.syls.map((s, i) => '<div class="syl-box ' + (s.state === 'skip' ? '' : s.state) + '"><span class="s">' + esc(Core.mark(target.w.syls[i].replace(/\d$/, '') + s.target)) + '</span>' + toneIcon(contextTones(res.syls.map(x => x.target))[i], true) + '<small>' + esc(s.state === 'skip' ? 'neutro' : s.state === 'ok' ? 'bien' : s.heardAs ? 'sonó a tono ' + s.heardAs : '¿?') + '</small></div>').join('') + '</div>';
       const bad = res.syls.filter(s => s.state === 'bad');
       if (bad.length) html += '<div class="checks">' + bad.map(s => '<div class="check"><span class="pill bad">' + esc(Core.mark(s.syl.replace(/\d$/, '') + s.target)) + '</span><div class="msg">' + esc(wordToneTip(s)) + '</div></div>').join('') + '</div>';
     }
@@ -493,7 +549,7 @@ function speakWidget(host, target, opts = {}) {
     } else {
       const w = target.w;
       const ref = w.audio ? await Core.refContour('w', w.h, w.syls.length).catch(() => null) : null;
-      const refSyls = ref ? ref.syls.map((s, k) => s.pts || idealContour(w.spoken[k])) : w.spoken.map(t => idealContour(t));
+      const ctx = contextTones(w.spoken), refSyls = ref ? ref.syls.map((s, k) => s.pts || idealContour(ctx[k])) : ctx.map(t => idealContour(t));
       const userSyls = res.syls.map(s => ({ pts: levelsOf(s.contour), color: css(s.state === 'ok' ? '--jade' : s.state === 'bad' ? '--cinnabar' : '--amber') }));
       drawWord(cv, refSyls, userSyls, w.spoken);
     }
@@ -507,11 +563,15 @@ function speakWidget(host, target, opts = {}) {
     else if (act === 'rec') startRec();
     else if (act === 'me' && st.last) Core.playSamples(st.last);
     else if (act === 'cmp' && st.last) { await playNative(); await new Promise(r => setTimeout(r, 250)); Core.playSamples(st.last); }
+    else if (act === 'rival') Core.playSyl(a.dataset.s);
+    else if (act === 'helpk') openHelp(target, a.dataset.k);
+    else if (act === 'ab') { await playNative(); await new Promise(r => setTimeout(r, 400)); await Core.playSyl(a.dataset.s); }
     else if (act === 'gem' && st.last) {
       const gh = $('.gem-host', host); gh.innerHTML = '<div class="gemini muted">Preguntando a Gemini…</div>';
       try {
         const label = target.type === 'word' ? target.w.h + ' (' + Core.markWord(target.w.p) + ')' : Core.mark(target.syl);
-        const g = await Core.gemini.ask(st.last, { label });
+        const sw = target.type === 'word' ? target.w : null;
+        const g = await Core.gemini.ask(st.last, { label, spoken: sw && sw.spoken.some((t, i) => t !== sw.tones[i]) ? sw.syls.map((s, i) => Core.mark(s.replace(/\d$/, '') + sw.spoken[i])).join(' ') : '' });
         const row = (k, v) => v ? '<div><b>' + k + ':</b> ' + esc(v) + '</div>' : '';
         gh.innerHTML = '<div class="gemini"><div class="eyebrow">Segunda opinión · Gemini</div>' + row('Oye', g.oigo) + row('Tonos', g.tonos) + row('Consonantes', g.consonantes) + row('Vocales', g.vocales) + row('Consejo', g.consejo) + '</div>';
       } catch (err) { gh.innerHTML = '<div class="gemini note err">' + esc(err.message || 'No he podido preguntar a Gemini.') + '</div>'; }
@@ -525,7 +585,7 @@ async function drawAir(cv, r, x) {
   const bank = Core.voicesFor(r.syl)[0];
   const buf = await Core.bufferOf(bank, r.syl).catch(() => null);
   const rows = [];
-  if (buf) { const nx = Core.samplesOf(buf); const na = E.analyzeSyllable(nx); if (na.ok) rows.push({ label: 'Nativo', x: nx, an: na }); }
+  if (buf) { const nx = Core.padRef(Core.samplesOf(buf)); const na = E.analyzeSyllable(nx); if (na.ok) rows.push({ label: 'Nativo', x: nx, an: na }); }
   rows.push({ label: 'Tú', x, an: r.an });
   const { g, w, h } = sizeCanvas(cv); g.clearRect(0, 0, w, h);
   const span = 0.42, rowH = h / rows.length, padL = 54;
@@ -548,6 +608,11 @@ async function drawAir(cv, r, x) {
     g.fillStyle = css('--ink'); g.textAlign = 'left'; g.fillText(row.label, 4, mid - 8);
     g.fillStyle = css('--ink-2'); g.font = '11px ' + css('--f-body'); g.fillText(Math.round((an.noiseDur || 0) * 1000) + ' ms', 4, mid + 9); g.font = '700 12px ' + css('--f-body');
     if (k) { g.strokeStyle = css('--line'); g.beginPath(); g.moveTo(0, y0); g.lineTo(w, y0); g.stroke(); }
+    // escala: una marca cada 100 ms desde el inicio del ruido
+    const tz = isFinite(an.noiseOn) ? an.noiseOn : t0 + 0.04;
+    g.fillStyle = css('--ink-2'); g.font = '10px ' + css('--f-body'); g.textAlign = 'center';
+    for (let ms = 0; ms <= 300; ms += 100) { const xx = xOf(tz + ms / 1000); if (xx > w - 10) break; g.fillRect(xx, y0 + rowH - 6, 1, 4); if (k === rows.length - 1) g.fillText(ms + ' ms', Math.min(w - 18, Math.max(padL + 12, xx)), y0 + rowH - 12); }
+    g.font = '700 12px ' + css('--f-body');
   });
 }
 function idealContour(t) { const p = CHAO[t] || [3, 3]; return p.map((L, i) => ({ t: i / (p.length - 1), L })); }
@@ -584,7 +649,7 @@ function runSession(sess) {
       foot.innerHTML = '<button class="btn primary" data-n>Continuar</button>';
     } else if (s.type === 'learn') {
       const w = s.w;
-      body.innerHTML = '<div class="target"><div class="eyebrow">Palabra nueva</div><div class="hz" style="font-size:3.4rem">' + esc(w.h) + '</div><div class="py" style="font-size:2.2rem">' + esc(Core.markWord(w.p)) + '</div><div class="toneicons">' + w.spoken.map(t => toneIcon(t)).join('') + '</div><div class="gloss" style="font-size:1.1rem">' + esc(w.es) + '</div></div><div class="listen-row"><button class="play-btn big" data-pw>' + I.play + 'Escuchar</button></div>' + wordNotes(w);
+      body.innerHTML = '<div class="target"><div class="eyebrow">Palabra nueva</div><div class="hz" style="font-size:3.4rem">' + esc(w.h) + '</div><div class="py" style="font-size:2.2rem">' + esc(Core.markWord(w.p)) + '</div><div class="toneicons">' + wordIcons(w.spoken) + '</div><div class="gloss" style="font-size:1.1rem">' + esc(w.es) + '</div></div><div class="listen-row"><button class="play-btn big" data-pw>' + I.play + 'Escuchar</button></div>' + wordNotes(w);
       $('[data-pw]', body).addEventListener('click', () => Core.playWord(w));
       setTimeout(() => Core.playWord(w), 300);
       foot.innerHTML = '<button class="btn primary" data-n>Continuar</button>';
@@ -628,7 +693,7 @@ function runSession(sess) {
       const sw = speakWidget($('.speak-host', body), s.target, { onResult: (res, score, n) => {
         if (n === 1) {
           // estadísticas solo con el primer intento
-          if (s.target.type === 'syl') { res.checks.forEach(c => recordCheck(c.key, c.state)); const tc = res.checks.find(c => c.key === 'tone'); if (tc) recordTone(res.sp.tone, tc.state === 'ok'); }
+          if (s.target.type === 'syl') { gradedChecks(res, s.target).forEach(c => c.state !== 'na' && recordCheck(c.key, c.state)); const tc = res.checks.find(c => c.key === 'tone'); if (tc) recordTone(res.sp.tone, tc.state === 'ok'); }
           else if (res.syls) res.syls.forEach(x => { if (x.state !== 'skip') { recordCheck('tone', x.state); recordTone(x.target, x.state === 'ok'); } });
           else if (res.single) res.single.checks.forEach(c => recordCheck(c.key, c.state));
           fineFromResult(res, s.target);
@@ -654,7 +719,13 @@ function runSession(sess) {
     bar.style.width = '100%';
     const vals = sess.results.filter(v => v != null);
     const score = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-    const stars = score >= 0.9 ? 3 : score >= 0.75 ? 2 : score >= 0.5 ? 1 : 0;
+    let stars = score >= 0.9 ? 3 : score >= 0.75 ? 2 : score >= 0.5 ? 1 : 0;
+    // para superar una lección hay que decir bien lo que se practica, no basta con acertar al oír
+    const spk = sess.log.filter(l => l.cat === 'speak'), lis = sess.log.filter(l => l.cat !== 'speak');
+    const spkOk = spk.filter(l => l.v >= 0.75).length, lisOk = lis.filter(l => l.v >= 0.99).length;
+    let why = '';
+    if (sess.lesson && spk.length >= 3 && spkOk < spk.length / 2) { stars = 0; why = 'Para superarla, al menos la mitad de lo que dices tiene que salir bien.'; }
+    else if (sess.lesson && !spk.length && sess.steps.some(s => s.type === 'speak')) { stars = Math.min(stars, 1); why = 'Sin hablar solo cuenta una estrella: cuando puedas, repítela en voz alta.'; }
     const gained = Math.round(score * 10) + (stars ? 10 : 2);
     prog.xp += gained; markDay();
     if (sess.lesson) {
@@ -666,7 +737,7 @@ function runSession(sess) {
     const extra = sess.onFinish ? sess.onFinish(sess, score) || '' : '';
     const wrongNames = [...new Set(sess.wrong.filter(s => s.type === 'speak').map(s => s.target.type === 'word' ? s.target.w.h : Core.mark(s.target.syl)))];
     const head = sess.lesson ? (stars === 3 ? '¡Excelente!' : stars === 2 ? '¡Muy bien!' : stars === 1 ? 'Superada' : 'Hay que repetirla') : (score >= 0.9 ? '¡Excelente!' : score >= 0.75 ? '¡Muy bien!' : score >= 0.5 ? 'Bien, sigue así' : 'Hay que practicar más');
-    body.innerHTML = '<div class="summary"><div class="bigstars">' + [1, 2, 3].map(k => I.star(k <= stars)).join('') + '</div><div class="score">' + Math.round(score * 100) + ' %</div><h2>' + head + '</h2><p class="muted">+' + gained + ' puntos' + (vals.length < graded() ? ' · ' + (graded() - vals.length) + ' ejercicios saltados' : '') + '</p>' +
+    body.innerHTML = '<div class="summary"><div class="bigstars">' + [1, 2, 3].map(k => I.star(k <= stars)).join('') + '</div><div class="score">' + Math.round(score * 100) + ' %</div><h2>' + head + '</h2><p class="muted">+' + gained + ' puntos' + (vals.length < graded() ? ' · ' + (graded() - vals.length) + ' ejercicios saltados' : '') + '</p>' + (sess.lesson && (spk.length || lis.length) ? '<p class="muted">' + (lis.length ? 'Oír: ' + lisOk + '/' + lis.length : '') + (lis.length && spk.length ? ' · ' : '') + (spk.length ? 'Decir: ' + spkOk + '/' + spk.length + ' bien' : '') + '</p>' : '') + (why ? '<div class="note">' + esc(why) + '</div>' : '') +
       extra + (wrongNames.length ? '<div class="panel" style="width:100%;text-align:left"><h3>Para el repaso</h3><p class="muted">Te los volveré a pedir en la pestaña Practicar:</p><div class="ex-chips">' + wrongNames.map(n => '<span class="chip">' + esc(n) + '</span>').join('') + '</div></div>' : '') + '</div>';
     foot.innerHTML = (stars === 0 && sess.lesson ? '<button class="btn" data-again>Repetir</button>' : '') + '<button class="btn primary" data-end>Terminar</button>';
     foot.onclick = e => {
@@ -681,9 +752,10 @@ const ST_V = st => st === 'ok' ? 1 : st === 'unsure' ? 0.5 : 0;
 function fineFromResult(res, target) {
   const fromChecks = (r) => {
     const sp = r.sp; if (!sp) return;
-    const map = { tone: 'S:tone:' + sp.tone, asp: 'S:asp:' + sp.ini, retro: 'S:retro:' + sp.ini, vowel: 'S:vowel:' + sp.canon, nasal: 'S:nasal:' + sp.canon };
-    r.checks.forEach(c => { if (map[c.key]) Core.fine.add(map[c.key], ST_V(c.state)); });
-    if (r.checks.length) Core.fine.add('syl:' + sp.base, r.checks.reduce((a, c) => a + ST_V(c.state), 0) / r.checks.length);
+    const map = { r: 'S:r:r', tone: 'S:tone:' + sp.tone, asp: 'S:asp:' + sp.ini, retro: 'S:retro:' + sp.ini, vowel: 'S:vowel:' + sp.canon, nasal: 'S:nasal:' + sp.canon };
+    const g = gradedChecks(r, target.type === 'syl' ? target : { focus: ['tone'] }).filter(c => c.state !== 'na');
+    g.forEach(c => { if (map[c.key]) Core.fine.add(map[c.key], ST_V(c.state)); });
+    if (g.length) Core.fine.add('syl:' + sp.base, g.some(c => c.state === 'bad') ? 0 : g.reduce((a, c) => a + ST_V(c.state), 0) / g.length);
   };
   if (target.type === 'syl') return fromChecks(res);
   if (res.single) return fromChecks(res.single);
@@ -768,7 +840,7 @@ function openPractice(target, title) {
   if (!Core.calibration()) $('.speak-host', ov).insertAdjacentHTML('beforebegin', '<div class="note">Aún no has calibrado tu voz: las medidas serán menos precisas. <button class="link" data-cal>Calibrar ahora</button></div>');
   ov.addEventListener('click', e => { if (e.target.closest('[data-cal]')) openCalibration(() => openPractice(target, title)); });
   speakWidget($('.speak-host', ov), target, { onResult: (res, score, n) => {
-    if (n === 1) { markDay(); if (res.checks) res.checks.forEach(c => recordCheck(c.key, c.state)); saveProg(); }
+    if (n === 1) { markDay(); if (res.checks) gradedChecks(res, target).forEach(c => c.state !== 'na' && recordCheck(c.key, c.state)); fineFromResult(res, target); saveProg(); }
     const item = target.type === 'word' ? { type: 'word', key: target.w.h } : { type: 'syl', key: target.syl, focus: target.focus };
     if (n === 1) { if (score < 0.75) srsAdd(item, false); else if (srs[item.type + ':' + item.key]) srsAdd(item, true); }
   } });
@@ -791,7 +863,23 @@ function openCalibration(after) {
   const ov = openOverlay('<div class="ex-top"><button class="icon-btn" data-x aria-label="Cerrar">' + I.close + '</button><b style="flex:1">Calibrar tu voz</b></div><div class="ex-body"></div><div class="ex-foot"></div>');
   const body = $('.ex-body', ov), foot = $('.ex-foot', ov);
   $('[data-x]', ov).addEventListener('click', () => { closeOverlay(); renderCurrent(); });
-  const got = {}; let i = -1;
+  const got = {}, warned = {}; let i = -1;
+  // comprueba que lo grabado se parece a lo pedido; al segundo intento lo acepta igual (hay voces muy distintas)
+  function shapeProblem(id, c) {
+    const v = c.map(p => p.v), n = v.length, core = v.slice(Math.floor(n * 0.15), Math.ceil(n * 0.9));
+    const mx = Math.max(...core), mn = Math.min(...core), first = core[0], last = core[core.length - 1], imn = core.indexOf(mn);
+    if (id === 't1' && mx - mn > 3.5) return 'Ha sonado con mucho movimiento. El tono 1 va plano, como una nota cantada.';
+    if (id === 't2' && !(last - mn >= 2 && imn < core.length * 0.7)) return 'No ha subido con claridad. El tono 2 sube desde la mitad de tu voz hasta arriba.';
+    if (id === 't3' && !(first - mn >= 1.5 && imn > core.length * 0.2)) return 'No ha bajado. El tono 3 baja hasta lo más grave de tu voz.';
+    if (id === 't4' && !(first - last >= 3.5)) return 'No ha caído lo suficiente. El tono 4 cae de arriba abajo, como un "¡no!" rotundo.';
+    return null;
+  }
+  function vowelProblem(id, f) {
+    if (id === 'i' && !(f.F2 > 1900)) return 'No ha sonado como una i clara (o hay ruido). Sonríe y di "iiii" bien cerrada.';
+    if (id === 'u' && !(f.F2 < 1250)) return 'No ha sonado como una u clara. Redondea mucho los labios: "uuuu".';
+    if (id === 'a' && !(f.F1 > 500)) return 'No ha sonado como una a abierta. Abre bien la boca: "aaaa".';
+    return null;
+  }
   function intro() {
     body.innerHTML = '<div class="card"><h3>30 segundos para adaptarme a tu voz</h3><p>Cada voz es distinta: unas son graves y otras agudas, y cada micrófono suena diferente. Te pediré 10 cosas muy cortas:</p><ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px"><li>2 segundos de silencio, para medir el ruido.</li><li><b>mā má mǎ mà</b>: así sé dónde están lo más agudo y lo más grave de tu voz (los niveles 1 a 5 de los tonos).</li><li>Las vocales <b>a</b>, <b>i</b>, <b>u</b>: así puedo medir la ü, la e china y las nasales con tu boca.</li><li><b>sss</b> y <b>shhh</b>: así sé cómo suenan en tu micro la lengua delante y la lengua atrás.</li></ul><div class="note">Busca un sitio tranquilo, sujeta el móvil a un palmo de la boca y habla con tu voz normal.</div></div>';
     foot.innerHTML = '<button class="btn primary" data-go1>Empezar</button>';
@@ -824,9 +912,11 @@ function openCalibration(after) {
       if (s.id[0] === 't') {
         const an = E.analyzeSyllable(x, { noiseDb: got.noise ? got.noise.e + 3 : undefined });
         if (!an.ok || an.contour.length < 6) return 'No te he oído bien. Repite un poco más fuerte.';
+        const pr = shapeProblem(s.id, an.contour);
+        if (pr && !warned[s.id]) { warned[s.id] = true; return pr + ' Escucha y repite.'; }
         got[s.id] = an.contour; return true;
       }
-      if ('aiu'.includes(s.id)) { const v = Core.calibrate.vowel(x); if (!v) return 'No he podido medir la vocal. Mantenla 2 segundos con voz clara.'; got[s.id] = v; return true; }
+      if ('aiu'.includes(s.id)) { const v = Core.calibrate.vowel(x); if (!v) return 'No he podido medir la vocal. Mantenla 2 segundos con voz clara.'; const pr = vowelProblem(s.id, v); if (pr && !warned[s.id]) { warned[s.id] = true; return pr; } got[s.id] = v; return true; }
       if (s.id === 's' || s.id === 'sh') { const f = Core.calibrate.fric(x); if (!f) return 'No lo he oído. Hazlo un poco más fuerte y mantenlo.'; got[s.id] = f; return true; }
     } catch (err) { console.error(err); return 'Algo ha fallado al medir. Repite.'; }
     return true;
@@ -839,7 +929,8 @@ function openCalibration(after) {
     const fric = got.s && got.sh ? { s: got.s, sh: got.sh } : prev.fric;
     const cal = { range, vowels, fric, noise: got.noise || prev.noise, at: Date.now() };
     const warns = [];
-    if (cal.noise && cal.noise.e > -38) warns.push('Hay bastante ruido de fondo: las medidas serán menos fiables.');
+    if (cal.noise && cal.noise.e > -38) warns.push('Hay bastante ruido de fondo: el aire, la lengua y las nasales no se podrán medir bien. Busca un sitio más tranquilo y repite la calibración.');
+    else if (cal.noise && cal.noise.e > -50) warns.push('Hay algo de ruido de fondo (ventilador, nevera, calle…). Los tonos se miden bien, pero el aire y las nasales pueden fallar.');
     if (vowels && !(vowels.i.F2 > vowels.a.F2 && vowels.a.F2 > vowels.u.F2)) warns.push('Las vocales no han salido como esperaba. Si las medidas de vocales fallan, repite la calibración.');
     if (fric && !(fric.sh.low > fric.s.low)) warns.push('Tu "sh" y tu "s" se parecen mucho en este micro: la medida de la lengua será menos fiable.');
     if (fric && fric.s.high < 0.15) warns.push('Tu micro recorta los agudos: la diferencia s / sh será menos precisa.');
@@ -860,15 +951,23 @@ function openCalibration(after) {
 let tableTone = 1, tableHeat = false;
 // Trampas de escritura: lo que se escribe no es lo que suena
 function trapNote(ini, fin) {
-  if (fin === 'iou') return { short: 'iu = iou', text: 'Se escribe <b>' + esc(C.spell(ini, fin)) + '</b> pero suena con una o en medio: "' + esc((ini || 'y') + 'iou') + '". En tonos 3 y 4 la o se oye bastante.' };
-  if (fin === 'uei') return { short: 'ui = uei', text: 'Se escribe <b>' + esc(C.spell(ini, fin)) + '</b> pero suena "' + esc((ini || 'w') + 'uei') + '": hay una e escondida.' };
-  if (fin === 'uen') return { short: 'un = uen', text: 'Se escribe <b>' + esc(C.spell(ini, fin)) + '</b> pero suena "' + esc((ini || 'w') + 'uən') + '": con una e neutra en medio.' };
-  if (fin === 'ian') return { short: 'ian = ien', text: 'Se escribe <b>' + esc(C.spell(ini, fin)) + '</b> pero suena casi "' + esc((ini || 'y') + 'ien') + '": la a se cierra hacia una e.' };
-  if (fin[0] === 'v' && (!ini || 'jqx'.includes(ini))) return { short: 'u = ü', text: 'Después de <b>j, q, x</b> y en <b>yu</b> se escribe u, pero suena <b>ü</b> (lengua de i, labios de u). Los puntos de la ü se quitan porque ahí nunca puede ir una u normal.' };
-  if (fin === 'i' && ['z', 'c', 's'].includes(ini)) return { short: 'i ≠ i', text: 'Aquí la i no suena i: es un zumbido "zzz" con la lengua donde estaba.' };
-  if (fin === 'i' && ['zh', 'ch', 'sh', 'r'].includes(ini)) return { short: 'i ≠ i', text: 'Aquí la i no suena i: la lengua sigue doblada hacia atrás, como una "r" inglesa.' };
-  if (fin === 'e' && ini) return null;
-  if (fin === 'o' && 'bpmf'.includes(ini) && ini) return { short: 'o = uo', text: 'Después de b, p, m, f la o suena "uo": bo suena casi "buo".' };
+  const sp = esc(C.spell(ini, fin) || '');
+  if (ini && fin === 'iou') return { spelling: true, short: 'iu = iou', text: 'Se escribe <b>' + sp + '</b> pero suena con una o en medio: "' + esc(ini + 'iou') + '". En tonos 3 y 4 la o se oye bastante.' };
+  if (ini && fin === 'uei') return { spelling: true, short: 'ui = uei', text: 'Se escribe <b>' + sp + '</b> pero suena "' + esc(ini + 'uei') + '": hay una e escondida.' };
+  if (ini && fin === 'uen') return { spelling: true, short: 'un = uen', text: 'Se escribe <b>' + sp + '</b> pero suena "' + esc(ini + 'uən') + '": con una e neutra en medio.' };
+  if (fin === 'van') return { spelling: true, short: 'üan = üen', text: 'Se escribe <b>' + sp + '</b> pero suena "' + esc((ini || 'y') + 'üen') + '": ü al principio y una e española en lugar de la a. Después de j, q, x e y se escribe u, pero es ü.' };
+  if (fin === 'ian') return { spelling: true, short: 'ian = ien', text: 'Se escribe <b>' + sp + '</b> pero suena casi "' + esc((ini || 'y') + 'ien') + '": la a se cierra hacia una e.' };
+  if (fin[0] === 'v' && (!ini || 'jqx'.includes(ini))) return { spelling: true, short: 'u = ü', text: 'Después de <b>j, q, x</b> y en <b>yu</b> se escribe u, pero suena <b>ü</b> (lengua de i, labios de u). Los puntos se quitan porque ahí nunca puede ir una u normal.' };
+  if (fin[0] === 'v' && (ini === 'n' || ini === 'l')) return { spelling: true, short: 'ü ≠ u', text: 'Después de n y l la ü conserva los puntos porque también existe la u normal: nǚ (mujer) ≠ nǔ (esforzarse), lǜ (verde) ≠ lù (camino).' };
+  if (fin === 'i' && ['z', 'c', 's'].includes(ini)) return { spelling: true, short: 'i ≠ i', text: 'Aquí la i no suena i: es un zumbido "zzz" con la lengua donde estaba.' };
+  if (fin === 'i' && ['zh', 'ch', 'sh', 'r'].includes(ini)) return { spelling: true, short: 'i ≠ i', text: 'Aquí la i no suena i: la lengua sigue levantada hacia atrás, como una "r" inglesa.' };
+  if (fin === 'o' && ini && 'bpmf'.includes(ini)) return { spelling: true, short: 'o = uo', text: 'Después de b, p, m, f la o suena "uo": bo suena casi "buo".' };
+  if (fin === 'ong' || fin === 'iong') return { spelling: true, short: 'ong = ung', text: 'Se escribe <b>' + sp + '</b> pero la vocal es casi una <b>u</b>: "' + esc((C.spell(ini, fin) || '').replace('ong', 'ung')) + '". No la abras como la o española.' };
+  // Notas de sonido (no llevan punto en la tabla)
+  if (fin === 'e') return { short: 'e china', text: 'Esta e NO es la española: boca entreabierta, labios relajados y la lengua atrás, como un "eh…" de duda que tira hacia u.' };
+  if (fin === 'ao' || fin === 'iao') return { short: 'ao ≈ au', text: 'La o de <b>' + sp + '</b> suena casi como una u: "' + esc((C.spell(ini, fin) || '').replace('ao', 'au')) + '".' };
+  if (['ie', 've', 'ei'].includes(fin)) return { short: 'e española', text: 'Aquí la e sí es la española, como en "pie" o "rey".' };
+  if (['en', 'eng', 'uen', 'ueng'].includes(fin)) return { short: 'e = ə', text: 'En <b>' + sp + '</b> la e es neutra y corta ("ə", como la vocal de <i>the</i> en inglés), no la e española.' };
   return null;
 }
 // Sílabas con las que se confunde un hispanohablante
@@ -885,7 +984,7 @@ function confusables(base) {
     if (i && 'jqx'.includes(i) && /^u(an|e|n)?$/.test(ff) && !'jqx'.includes(ini)) ff = 'v' + ff.slice(1);
     if (!'jqx'.includes(i || '-') && ff[0] === 'v' && ini && 'jqx'.includes(ini) && i) ff = 'u' + ff.slice(1);
     const cand = C.spell(i, ff);
-    if (cand && cand !== base && [1, 2, 3, 4].some(t => Core.hasSyl(cand + t))) out.add(cand);
+    if (cand && cand !== base && [1, 2, 3, 4].some(t => Core.realSyl(cand + t))) out.add(cand);
   };
   CONF_INI.forEach(g => { if (g.includes(ini)) g.forEach(i => i !== ini && tryAdd(i, fin)); });
   CONF_FIN.forEach(g => { if (g.includes(fin)) g.forEach(f => f !== fin && tryAdd(ini, f)); });
@@ -902,8 +1001,8 @@ function renderTable() {
     html += '<tr><td class="ini">' + esc(ini || '–') + '</td>';
     C.TABLE_FIN.forEach(fin => {
       const s = C.spell(ini, fin);
-      const has = s && [1, 2, 3, 4].some(t => Core.hasSyl(s + t));
-      const trap = has && trapNote(ini, fin);
+      const has = s && [1, 2, 3, 4].some(t => Core.realSyl(s + t));
+      const tn = has && trapNote(ini, fin), trap = tn && tn.spelling;
       html += '<td>' + (has ? '<button class="' + (tableHeat ? heatClass(s) : '') + (trap ? ' trap' : '') + '" data-syl="' + esc(s) + '" data-ini="' + esc(ini) + '" data-fin="' + esc(fin) + '">' + esc(C.display(s)) + '</button>' : '') + '</td>';
     });
     html += '</tr>';
@@ -916,18 +1015,18 @@ $('#v-table').addEventListener('click', e => {
   if (e.target.closest('[data-heat]')) { const sc = $('.tbl-wrap') ? [$('.tbl-wrap').scrollLeft, $('.tbl-wrap').scrollTop] : [0, 0]; tableHeat = !tableHeat; renderTable(); const tw = $('.tbl-wrap'); if (tw) { tw.scrollLeft = sc[0]; tw.scrollTop = sc[1]; } return; }
   const b = e.target.closest('[data-syl]'); if (!b) return;
   const syl = b.dataset.syl;
-  const tt = Core.hasSyl(syl + tableTone) ? tableTone : [1, 2, 3, 4].find(x => Core.hasSyl(syl + x));
+  const tt = Core.realSyl(syl + tableTone) ? tableTone : [1, 2, 3, 4].find(x => Core.realSyl(syl + x));
   Core.playSyl(syl + tt);
   openSylSheet(syl, b.dataset.ini, b.dataset.fin, tt);
 });
 function openSylSheet(base, ini, fin, tone0) {
-  const tones = [1, 2, 3, 4].filter(t => Core.hasSyl(base + t));
+  const tones = [1, 2, 3, 4].filter(t => Core.realSyl(base + t));
   let cur = tone0 || tones[0];
   let html = '<div class="tone-btns">' + [1, 2, 3, 4].map(t => { const ex = Core.example(base + t); return '<button class="btn" data-pt="' + t + '"' + (tones.includes(t) ? '' : ' disabled') + '><b>' + esc(Core.mark(base + t)) + '</b>' + toneIcon(t, true) + (ex ? '<span class="ex-char han">' + esc(ex[0]) + '</span>' + (ex[1] ? '<span class="ex-es">' + esc(ex[1]) + '</span>' : '') : '') + '</button>'; }).join('') + '</div>';
   html += '<div class="row-btns"><button class="btn small" data-voice="auto">Automática</button><button class="btn small" data-voice="v1">Voz 1</button><button class="btn small" data-voice="v2">Voz 2</button></div>';
   html += '<div class="row-btns">' + tones.map(t => '<button class="btn primary small" data-prac="' + t + '">' + I.mic.replace('<svg', '<svg width="16" height="16"') + 'Practicar ' + esc(Core.mark(base + t)) + '</button>').join('') + '</div>';
   const trap = trapNote(ini, fin);
-  if (trap) html += '<div class="note"><b>Ojo, trampa de escritura:</b> ' + trap.text + '</div>';
+  if (trap) html += '<div class="note"><b>' + (trap.spelling ? 'Ojo, trampa de escritura:' : 'Ojo al sonido:') + '</b> ' + trap.text + '</div>';
   const conf = confusables(base);
   if (conf.length) html += '<div class="card conf"><div><div class="eyebrow">Se confunde con</div><p class="muted">Toca para oír las dos seguidas. Elige el tono arriba.</p></div><div class="conf-list">' + conf.map(c => '<button class="conf-btn" data-conf="' + esc(c) + '"><span>' + esc(C.display(base)) + '</span><span class="vs">↔</span><span>' + esc(C.display(c)) + '</span></button>').join('') + '</div></div>';
   const r = Core.fine.rate('syl:' + base);
@@ -949,7 +1048,7 @@ function openSylSheet(base, ini, fin, tone0) {
     const p = e.target.closest('[data-pt]'); if (p) { cur = +p.dataset.pt; setT(); pv(base + cur); return; }
     const vv = e.target.closest('[data-voice]'); if (vv) { voice = vv.dataset.voice; setV(); return; }
     const cf = e.target.closest('[data-conf]'); if (cf) {
-      const other = cf.dataset.conf; const t = Core.hasSyl(other + cur) && Core.hasSyl(base + cur) ? cur : [1, 2, 3, 4].find(x => Core.hasSyl(other + x) && Core.hasSyl(base + x));
+      const other = cf.dataset.conf; const t = Core.realSyl(other + cur) && Core.realSyl(base + cur) ? cur : [1, 2, 3, 4].find(x => Core.realSyl(other + x) && Core.realSyl(base + x));
       if (!t) return; cf.classList.add('playing'); await pv(base + t); await new Promise(r => setTimeout(r, 350)); await pv(other + t); cf.classList.remove('playing'); return;
     }
     const pr = e.target.closest('[data-prac]'); if (pr) { closeSheet(); const syl = base + pr.dataset.prac; openPractice(sylTarget(syl, focusFor(syl)), 'Practicar ' + Core.mark(syl)); }
@@ -961,6 +1060,7 @@ function focusFor(syl) {
   if (sp.ini in Core.RETRO_SET) f.push('retro');
   if (['v', 've', 'van', 'vn', 'e', 'i-apical', 'i-retro', 'er'].includes(sp.canon)) f.push('vowel');
   if (sp.canon in Core.NASAL_FAM) f.push('nasal');
+  if (sp.canon === 'u' && (['l', 'n'].includes(sp.ini) || !sp.ini)) f.push('vowel');
   return f;
 }
 
@@ -1024,7 +1124,7 @@ function renderSettings() {
     '<button class="btn primary" data-cal>' + (cal ? 'Repetir calibración' : 'Calibrar ahora') + '</button></div>' +
     '<div class="panel"><h3>Audio de referencia</h3><p class="muted">Dos voces nativas para las sílabas (las palabras tienen una tercera). He analizado las 3.282 grabaciones de sílabas: en "Automática" suena siempre la que tiene el tono más claro, y las que no sonaban al tono correcto no se usan nunca.</p><div class="seg" role="group" aria-label="Voz">' + [['auto', 'Automática'], ['v1', 'Voz 1'], ['v2', 'Voz 2']].map(([k, l]) => '<button data-voice="' + k + '" aria-pressed="' + (settings.voice === k) + '">' + l + '</button>').join('') + '</div></div>' +
     '<div class="panel"><h3>Tema</h3><div class="seg" role="group" aria-label="Tema">' + [['system', 'Sistema'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([k, l]) => '<button data-theme="' + k + '" aria-pressed="' + (settings.theme === k) + '">' + l + '</button>').join('') + '</div></div>' +
-    '<div class="panel"><h3>Segunda opinión con Gemini (opcional)</h3><p class="muted">La app evalúa todo en tu móvil, sin enviar nada. Con una clave de Gemini se activan dos extras: la segunda opinión después de cada intento y el tutor de conversación. El audio se envía a Google solo cuando usas esas funciones.</p><p class="muted"><b>Cómo conseguir la clave (gratis):</b> entra en aistudio.google.com con tu cuenta de Google → "Get API key" → "Create API key" y pégala aquí. Ojo: la suscripción de Gemini para estudiantes es para la app de Gemini y no incluye esta clave, pero la clave tiene un uso gratuito que sobra para practicar.</p>' +
+    '<div class="panel"><h3>Segunda opinión con Gemini (opcional)</h3><p class="muted">La app evalúa todo en tu móvil, sin enviar nada. Con una clave de Gemini se activan dos extras: la segunda opinión después de cada intento y el tutor de conversación. El audio se envía a Google solo cuando usas esas funciones.</p><p class="muted"><b>Cómo conseguir la clave (gratis):</b> entra en aistudio.google.com con tu cuenta de Google → "Get API key" → "Create API key" y pégala aquí. Si pagas Gemini (por ejemplo, el plan de estudiante), eso es para la app de Gemini; esta clave es aparte y gratuita, y el uso gratuito sobra para practicar.</p>' +
     '<input class="text" id="gemKey" type="password" autocomplete="off" placeholder="Pega aquí tu clave de Gemini" value="' + esc(g.key || '') + '"><div class="row-btns"><button class="btn small" data-gsave>Guardar y probar</button>' + (g.key ? '<button class="btn small danger" data-gdel>Quitar</button>' : '') + '</div><div id="gemMsg" class="muted">' + (g.model ? 'Modelo: ' + esc(g.model) : '') + '</div></div>' +
     '<div class="panel"><h3>Instalar en el móvil</h3><p class="muted">En Chrome: menú ⋮ → "Añadir a pantalla de inicio" o "Instalar aplicación". Funciona sin internet una vez abierta.</p></div>' +
     '<div class="panel"><h3>Progreso</h3>' + (confirmReset ? '<div class="confirm"><b>¿Borrar todo tu progreso?</b><span class="muted">Se borran lecciones, puntos y repaso. La calibración se mantiene.</span><div class="row-btns"><button class="btn" data-rno>Cancelar</button><button class="btn danger" data-ryes>Borrar</button></div></div>' : '<button class="btn danger" data-reset>Borrar progreso</button>') + '</div>' +
@@ -1048,7 +1148,7 @@ $('#v-settings').addEventListener('click', async e => {
 });
 
 // ---------- piezas para practice.js ----------
-window.UI = { $, $$, esc, shuffle, pick, css, I, toneIcon, toneChart, CHAO, openOverlay, closeOverlay, openSheet, closeSheet, runSession, speakWidget, sylTarget, wordTarget, sylWithTone, pairWithTone,
+window.UI = { $, $$, esc, shuffle, pick, css, I, toneIcon, wordIcons, contextTones, toneChart, CHAO, openOverlay, closeOverlay, openSheet, closeSheet, runSession, speakWidget, sylTarget, wordTarget, sylWithTone, pairWithTone,
   toast, prog: () => prog, saveProg, srsAdd, dueItems, srs: () => srs, openCalibration, micErrorHTML, sizeCanvas, gridLevels, plotLine, renderCurrent, go, addCleanup: f => overlayCleanup.push(f),
   streak, markDay, recordCheck, fineFromResult, levelsOf, introCardHTML, mountMouths, openPractice, focusFor, confusables, updateChips, wordFromPhrase };
 

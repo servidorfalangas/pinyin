@@ -168,13 +168,18 @@ canvas.live { width: 100%; height: 70px; background: var(--surface); border: 1px
 .verdict .small { font-size: .85rem; color: var(--ink-2); }
 canvas.contour { width: 100%; height: 170px; display: block; }
 .legend { display: flex; gap: 14px; font-size: .78rem; color: var(--ink-2); flex-wrap: wrap; }
+.small-note { font-size: .78rem; margin: 2px 0 0; }
+.sounded { background: var(--cinnabar-soft); border-radius: 12px; padding: 10px 12px; font-size: .95rem; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sounded b { font-family: var(--f-py, inherit); }
+details.more-checks { border-top: 1px solid var(--line); padding-top: 6px; }
+details.more-checks summary { cursor: pointer; color: var(--ink-2); font-size: .85rem; padding: 6px 0; min-height: 32px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 18px; height: 3px; border-radius: 2px; display: inline-block; }
 .checks { display: flex; flex-direction: column; gap: 8px; }
 .check { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: start; border-top: 1px solid var(--line); padding-top: 8px; }
 .check:first-child { border-top: 0; padding-top: 0; }
 .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: .78rem; font-weight: 700; white-space: nowrap; }
-.pill.ok { background: var(--jade-soft); color: var(--jade); } .pill.bad { background: var(--cinnabar-soft); color: var(--cinnabar); } .pill.unsure { background: var(--amber-soft); color: var(--amber); } .pill.skip { background: var(--paper); color: var(--ink-2); }
+.pill.ok { background: var(--jade-soft); color: var(--jade); } .pill.bad { background: var(--cinnabar-soft); color: var(--cinnabar); } .pill.unsure { background: var(--amber-soft); color: var(--amber); } .pill.skip { background: var(--paper); color: var(--ink-2); } .pill.info { background: var(--paper); color: var(--ink-2); border: 1px solid var(--line); }
 .check .msg { font-size: .92rem; }
 .meter { grid-column: 2; position: relative; height: 22px; border-radius: 6px; overflow: hidden; display: flex; font-size: .68rem; color: var(--ink-2); }
 .meter .z { display: flex; align-items: center; justify-content: center; }

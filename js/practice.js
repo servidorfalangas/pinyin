@@ -6,12 +6,12 @@ const { $, $$, esc, shuffle, pick, css, I, toneIcon } = U;
 
 // ---------- utilidades ----------
 const COMMON = ['ma', 'ba', 'yi', 'wu', 'da', 'tang', 'fei', 'shi', 'mai', 'hao', 'qi', 'you', 'mi', 'tu', 'li', 'xian', 'zhu', 'ge', 'chu', 'lan', 'wen', 'ying', 'jiao', 'dong']
-  .filter(b => [1, 2, 3, 4].every(t => Core.hasSyl(b + t)));
+  .filter(b => [1, 2, 3, 4].every(t => Core.realSyl(b + t)));
 const pct = v => v == null ? '–' : Math.round(v * 100) + ' %';
 const rateColor = v => v == null ? 'var(--line)' : v >= 0.8 ? 'var(--jade)' : v >= 0.5 ? 'var(--amber)' : 'var(--cinnabar)';
 const rateBg = v => v == null ? 'var(--surface)' : v >= 0.8 ? 'var(--jade-soft)' : v >= 0.5 ? 'var(--amber-soft)' : 'var(--cinnabar-soft)';
 const patLabel = p => p.split('-').map(t => t === '5' ? 'neutro' : t).join(' + ');
-const patIcons = p => p.split('-').map(t => toneIcon(+t, true)).join('');
+const patIcons = p => U.wordIcons(p.split('-').map(Number), true);
 const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
 function combine(...keys) { const rs = keys.map(k => Core.fine.rate(k)).filter(v => v != null); return avg(rs); }
 function needCal(fn) { if (!Core.calibration()) { U.toast('Primero calibra tu voz: son 30 segundos'); U.openCalibration(fn); return true; } return false; }
@@ -20,7 +20,7 @@ function needCal(fn) { if (!Core.calibration()) { U.toast('Primero calibra tu vo
 const Q = {};
 Q.tone = (t) => {
   t = t || pick([1, 2, 3, 4]);
-  const okb = COMMON.filter(b => Core.sylOK(b + t));
+  const okb = COMMON.filter(b => Core.sylOK(b + t) && Core.example(b + t));
   const base = pick(okb.length ? okb : COMMON);
   return { type: 'listen', cat: 'tone', stat: 'L:tone:' + t, play: { syl: base + t }, prompt: '¿Qué tono has oído?',
     options: [1, 2, 3, 4].map(x => ({ value: x, label: 'tono ' + x, html: toneIcon(x, false, true) + '<span class="sm">' + esc(C.TONES[x].shape) + '</span>' })), answer: t,
@@ -39,9 +39,9 @@ Q.pair = (pat) => {
   return { type: 'listen', cat: 'pair', stat: 'L:pair:' + ans, play: { word: w }, prompt: '¿Qué tonos tiene esta palabra?',
     options: shuffle([...opts]).map(p => ({ value: p, label: patLabel(p), html: '<span>' + patIcons(p) + '</span><span class="sm">' + patLabel(p) + '</span>' })), answer: ans, explain: note };
 };
-const INI_PAIRS = [['b', 'p'], ['d', 't'], ['g', 'k'], ['z', 'c'], ['zh', 'ch'], ['j', 'q'], ['z', 'zh'], ['c', 'ch'], ['s', 'sh'], ['j', 'zh'], ['q', 'ch'], ['x', 'sh'], ['x', 's'], ['l', 'r'], ['f', 'h'], ['n', 'l']];
+const INI_PAIRS = [['b', 'p'], ['d', 't'], ['g', 'k'], ['z', 'c'], ['zh', 'ch'], ['j', 'q'], ['z', 'zh'], ['c', 'ch'], ['s', 'sh'], ['j', 'zh'], ['q', 'ch'], ['x', 'sh'], ['x', 's'], ['l', 'r'], ['h', 'k'], ['f', 'h']];
 const FIN_PAIRS = [['an', 'ang'], ['en', 'eng'], ['in', 'ing'], ['ian', 'iang'], ['uan', 'uang'], ['u', 'v'], ['uen', 'ueng'], ['ie', 've'], ['e', 'o'], ['ou', 'uo']];
-function sylsFor(ini, fin) { const s = C.spell(ini, fin); return s && [1, 2, 3, 4].some(t => Core.hasSyl(s + t)) ? s : null; }
+function sylsFor(ini, fin) { const s = C.spell(ini, fin); return s && [1, 2, 3, 4].some(t => Core.realSyl(s + t)) ? s : null; }
 Q.ini = (pair) => {
   pair = pair || pick(INI_PAIRS);
   const [a, b] = pair;
@@ -89,7 +89,8 @@ const CATS = { tone: 'Tonos', pair: 'Parejas de tonos', cons: 'Consonantes', vow
 // ---------- dictado ----------
 function answerOf(w) { return w.syls.map((s, i) => { const base = s.replace(/\d$/, ''), t = +s.slice(-1); const sp = w.spoken[i]; return { base, tone: t, alt: sp !== t ? [sp] : [] }; }); }
 const D = {};
-D.syl = () => { const base = pick(Core.sylBases.filter(b => !/^(_|hm|hng|ng$|m$|n$|ê)/.test(b) && b.length > 1)); const syl = U.sylWithTone(base); return { type: 'dictate', cat: 'dict', play: { syl }, answer: [{ base: syl.slice(0, -1), tone: +syl.slice(-1) }] }; };
+const DICT_SYLS = Core.sylBases.filter(b => !/^(_|hm|hng|ng$|m$|n$|ê)/.test(b) && b.length > 1).flatMap(b => [1, 2, 3, 4].map(t => b + t)).filter(s => Core.sylOK(s) && Core.example(s));
+D.syl = () => { const syl = pick(DICT_SYLS); return { type: 'dictate', cat: 'dict', play: { syl }, answer: [{ base: syl.slice(0, -1), tone: +syl.slice(-1) }] }; };
 D.pair = () => { const w = pick(Core.pairs.filter(x => Core.wordAudioOK(x))); return { type: 'dictate', cat: 'dict', play: { word: w }, answer: answerOf(w), show: w, hint: 'Escribe los tonos como se escriben en el diccionario (se aceptan también los cambios de tono).' }; };
 D.word = () => { const w = pick(Core.words.filter(x => Core.wordAudioOK(x))); return { type: 'dictate', cat: 'dict', play: { word: w }, answer: answerOf(w), show: w }; };
 D.sent = () => { const s = pick(Core.sentences.filter(x => x.sAudio)); return { type: 'dictate', cat: 'dict', play: { sent: s }, answer: answerOf(s), show: s, prompt: 'Escribe la frase en pinyin' }; };
@@ -103,6 +104,7 @@ function weakLabel(k) {
     if (what === 'tone') return 'Decir el tono ' + x;
     if (what === 'pair') return 'Decir la pareja ' + x[0] + ' + ' + (x[1] === '5' ? 'neutro' : x[1]);
     if (what === 'asp') return 'El aire en la ' + x;
+    if (what === 'r') return 'La r china';
     if (what === 'retro') return 'La lengua en la ' + x;
     if (what === 'vowel') return 'Pronunciar ' + (VOWEL_NAMES[x] || disp(x));
     if (what === 'nasal') return 'La final -' + disp(x).replace(/^[iu]/, m => m);
@@ -385,7 +387,7 @@ function openShadow(s) {
     else if (act === 'cmp' && st.last) { await play(); await new Promise(r => setTimeout(r, 250)); Core.playSamples(st.last); }
     else if (act === 'gem' && st.last) {
       const gh = $('.gem-host', body); gh.innerHTML = '<div class="gemini muted">Preguntando a Gemini…</div>';
-      try { const g = await Core.gemini.ask(st.last, { label: s.h + ' (' + Core.markWord(s.p) + ')' }); const row = (k, v) => v ? '<div><b>' + k + ':</b> ' + esc(v) + '</div>' : ''; gh.innerHTML = '<div class="gemini"><div class="eyebrow">Segunda opinión · Gemini</div>' + row('Oye', g.oigo) + row('Tonos', g.tonos) + row('Consonantes', g.consonantes) + row('Vocales', g.vocales) + row('Consejo', g.consejo) + '</div>'; }
+      try { const g = await Core.gemini.ask(st.last, { label: s.h + ' (' + Core.markWord(s.p) + ')', spoken: s.syls.map((y, i) => Core.mark(y.replace(/\d$/, '') + s.spoken[i])).join(' ') }); const row = (k, v) => v ? '<div><b>' + k + ':</b> ' + esc(v) + '</div>' : ''; gh.innerHTML = '<div class="gemini"><div class="eyebrow">Segunda opinión · Gemini</div>' + row('Oye', g.oigo) + row('Tonos', g.tonos) + row('Consonantes', g.consonantes) + row('Vocales', g.vocales) + row('Consejo', g.consejo) + '</div>'; }
       catch (err) { gh.innerHTML = '<div class="gemini note err">' + esc(err.message) + '</div>'; }
     }
   });
@@ -398,7 +400,7 @@ function openTutor() {
   $('[data-x]', ov).addEventListener('click', () => { U.closeOverlay(); U.renderCurrent(); });
   const body = $('.chat-body', ov), foot = $('.chat-foot', ov);
   if (!Core.gemini.key()) {
-    body.innerHTML = '<div class="card"><h3>Necesitas una clave de Gemini</h3><p>El tutor usa Gemini para entenderte y contestarte. La clave es gratis:</p><ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px"><li>Entra en <b>aistudio.google.com</b> con tu cuenta de Google.</li><li>Pulsa <b>Get API key</b> → <b>Create API key</b>.</li><li>Cópiala y pégala en <b>Ajustes</b> de esta app.</li></ol><p class="muted">Tu suscripción de estudiante es para la app de Gemini; esta clave es aparte, pero el uso gratuito sobra para practicar.</p></div>';
+    body.innerHTML = '<div class="card"><h3>Necesitas una clave de Gemini</h3><p>El tutor usa Gemini para entenderte y contestarte. La clave es gratis:</p><ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px"><li>Entra en <b>aistudio.google.com</b> con tu cuenta de Google.</li><li>Pulsa <b>Get API key</b> → <b>Create API key</b>.</li><li>Cópiala y pégala en <b>Ajustes</b> de esta app.</li></ol><p class="muted">Si pagas Gemini (por ejemplo, el plan de estudiante), eso es para la app de Gemini; esta clave es aparte y gratuita, y el uso gratuito sobra para practicar.</p></div>';
     foot.innerHTML = '<button class="btn primary" data-set>Ir a Ajustes</button>';
     foot.onclick = e => { if (e.target.closest('[data-set]')) { U.closeOverlay(); U.go('settings'); } };
     return;

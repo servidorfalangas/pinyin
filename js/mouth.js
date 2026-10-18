@@ -157,11 +157,11 @@ const SEQ = {
   h: [{ t: 'velar', l: 'neutral', cap: 'Roce suave al fondo', hold: 450 }, { t: 'u', l: 'neutral', puff: 'hiss', hold: 1000 }, { t: 'a', l: 'open', puff: null, hold: 600 }, REST],
   j: stopSeq('palatal', 'spread', 'weak', 'Punta abajo, dorso al paladar · sin aire'),
   q: stopSeq('palatal', 'spread', 'strong', 'Punta abajo, dorso al paladar · con soplo'),
-  x: fricSeq('palatal', 'spread', 'Punta abajo · sonríe y sopla'),
+  x: fricSeq('palatal', 'spread', 'Punta abajo · el aire roza suave'),
   zh: stopSeq('retro', 'neutral', 'weak', 'Punta doblada hacia atrás · sin aire'),
   ch: stopSeq('retro', 'neutral', 'strong', 'Punta doblada hacia atrás · con soplo'),
   sh: fricSeq('retro', 'neutral', 'Punta doblada hacia atrás · sopla'),
-  r: [{ t: 'retro', l: 'neutral', cap: 'Punta atrás SIN tocar · vibra la voz', hold: 1400 }, { t: 'retro', l: 'neutral', puff: 'weak', hold: 600 }, REST],
+  r: [{ t: 'retro', l: 'neutral', cap: 'Punta arriba SIN tocar · con voz, sin vibrar', hold: 1400 }, { t: 'retro', l: 'neutral', puff: 'weak', hold: 600 }, REST],
   z: stopSeq('alveolar', 'spread', 'weak', 'Punta tras los dientes de arriba · sin aire'),
   c: stopSeq('alveolar', 'spread', 'strong', 'Punta tras los dientes de arriba · con soplo'),
   s: fricSeq('alveolar', 'spread', 'Como la s española'),
@@ -171,11 +171,11 @@ const SEQ = {
   i: [{ t: 'i', l: 'spread', cap: 'Sonrisa · lengua alta delante', hold: 1500 }, REST],
   u: [{ t: 'u', l: 'round', cap: 'Labios redondos y adelante', hold: 1500 }, REST],
   v: [{ t: 'i', l: 'spread', cap: '1. Di i', hold: 1200 }, { t: 'i', l: 'round', cap: '2. Sin mover la lengua, redondea', hold: 1700 }, REST],
-  er: [{ t: 'a', l: 'neutral', cap: '1. Di a', hold: 1000 }, { t: 'er', l: 'neutral', cap: '2. Curva la punta hacia atrás', hold: 1500 }, REST],
+  er: [{ t: 'e', l: 'neutral', cap: '1. Vocal neutra "ə"', hold: 1000 }, { t: 'er', l: 'neutral', cap: '2. Curva la punta hacia atrás', hold: 1500 }, REST],
   'n-final': [{ t: 'a', l: 'open', cap: 'Vocal…', hold: 900 }, { t: 'ridge', l: 'neutral', cap: '…y la PUNTA sube (-n)', hold: 1400 }, REST],
   'ng-final': [{ t: 'a', l: 'open', cap: 'Vocal…', hold: 900 }, { t: 'velar', l: 'open', cap: '…sube el FONDO, boca abierta (-ng)', hold: 1400 }, REST],
-  apical: [{ t: 'alveolar', l: 'spread', cap: 'La lengua no se mueve: zumbido zzz', hold: 1600 }, REST],
-  retrovowel: [{ t: 'retro', l: 'neutral', cap: 'La lengua sigue atrás: rrr', hold: 1600 }, REST],
+  apical: [{ t: 'alveolar', l: 'spread', cap: 'La lengua no se mueve: zumbido de abeja', hold: 1600 }, REST],
+  retrovowel: [{ t: 'retro', l: 'neutral', cap: 'La lengua sigue arriba: zumbido con voz', hold: 1600 }, REST],
 };
 
 window.Mouth = { build, SEQ };

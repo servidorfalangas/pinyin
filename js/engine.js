@@ -288,6 +288,28 @@ function noiseSpectrum(x, s0, s1) {
   for (let i = 0; i < N / 2; i++) acc[i] /= Math.max(1, k);
   return { p: acc, df: SR / N };
 }
+// Perfil espectral de un tramo de vocal: energía media (dB, relativa al máximo) en 12 bandas de 200 a 5000 Hz.
+// Más robusto que buscar formantes (no le afectan los armónicos de las voces agudas ni la voz rota del tono 3).
+const BAND_EDGES = [200, 500, 800, 1100, 1400, 1700, 2000, 2400, 2800, 3200, 3700, 4300, 5000];
+function bandProfile(x, t0, t1) {
+  const s0 = Math.round(t0 * SR), s1 = Math.round(t1 * SR);
+  if (!(s1 > s0)) return null;
+  const { p, df } = noiseSpectrum(x, s0, s1);
+  const B = [];
+  for (let k = 0; k + 1 < BAND_EDGES.length; k++) {
+    let s = 0, c = 0; for (let i = Math.ceil(BAND_EDGES[k] / df); i < BAND_EDGES[k + 1] / df && i < p.length; i++) { s += p[i]; c++; }
+    B.push(10 * Math.log10(s / Math.max(1, c) + 1e-14));
+  }
+  const mx = Math.max(...B);
+  return B.map(v => +(v - mx).toFixed(2));
+}
+// Perfiles al principio, en medio y al final de la parte vocálica
+function vowelBands(x, an) {
+  if (!an || !an.ok || !isFinite(an.voiceOn)) return null;
+  const a = an.voiceOn, b = an.vowelOff || an.voiceOff, d = b - a;
+  if (!(d > 0.06)) return null;
+  return { b: bandProfile(x, a, a + 0.25 * d), m: bandProfile(x, a + 0.3 * d, a + 0.6 * d), e: bandProfile(x, a + 0.75 * d, b) };
+}
 function spectralFeatures(spec) {
   const { p, df } = spec;
   const lo = Math.round(1000 / df), hi = Math.min(p.length - 1, Math.round(10500 / df));
@@ -333,6 +355,54 @@ function lpcEnvelope(x, s0, N, order, fs) {
   }
   return env; // resolución 20 Hz
 }
+// raíces del polinomio LPC (Durand-Kerner): frecuencias y anchos de banda de los formantes
+function lpcCoefs(x, s0, N, order) {
+  const seg = new Float64Array(N);
+  for (let i = 0; i < N; i++) seg[i] = ((x[s0 + i] || 0) - 0.97 * (x[s0 + i - 1] || 0)) * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1)));
+  const r = new Float64Array(order + 1);
+  for (let k = 0; k <= order; k++) { let s = 0; for (let i = k; i < N; i++) s += seg[i] * seg[i - k]; r[k] = s; }
+  if (r[0] <= 1e-12) return null;
+  r[0] *= 1.0001;
+  const a = new Float64Array(order + 1); a[0] = 1; let err = r[0];
+  for (let i = 1; i <= order; i++) {
+    let acc = r[i]; for (let j = 1; j < i; j++) acc += a[j] * r[i - j];
+    const k = -acc / err; const tmp = a.slice();
+    for (let j = 1; j < i; j++) a[j] = tmp[j] + k * tmp[i - j];
+    a[i] = k; err *= (1 - k * k);
+  }
+  return a;
+}
+function polyRoots(a) { // a[0]=1, grado n
+  const n = a.length - 1, re = new Float64Array(n), im = new Float64Array(n);
+  for (let i = 0; i < n; i++) { const ang = 2 * Math.PI * i / n + 0.4; re[i] = 0.9 * Math.cos(ang); im[i] = 0.9 * Math.sin(ang); }
+  for (let it = 0; it < 500; it++) {
+    let delta = 0;
+    for (let i = 0; i < n; i++) {
+      // p(z)
+      let pr = 1, pi = 0; for (let k = 1; k <= n; k++) { const nr = pr * re[i] - pi * im[i] + a[k], ni = pr * im[i] + pi * re[i]; pr = nr; pi = ni; }
+      let qr = 1, qi = 0; for (let j = 0; j < n; j++) { if (j === i) continue; const dr = re[i] - re[j], di = im[i] - im[j]; const nr = qr * dr - qi * di, ni = qr * di + qi * dr; qr = nr; qi = ni; }
+      const den = qr * qr + qi * qi + 1e-300, cr = (pr * qr + pi * qi) / den, ci = (pi * qr - pr * qi) / den;
+      re[i] -= cr; im[i] -= ci; delta = Math.max(delta, Math.abs(cr) + Math.abs(ci));
+    }
+    if (delta < 1e-10) break;
+  }
+  return { re, im };
+}
+function formantsRoots(x11, s0, fs, order) {
+  const a = lpcCoefs(x11, s0, Math.round(0.025 * fs), order || 12); if (!a) return null;
+  const { re, im } = polyRoots(a), fr = [];
+  for (let i = 0; i < re.length; i++) {
+    if (im[i] <= 0.01) continue;
+    const f = Math.atan2(im[i], re[i]) * fs / (2 * Math.PI), bw = -Math.log(Math.hypot(re[i], im[i])) * fs / Math.PI;
+    if (f > 150 && bw < 500 && f < fs / 2 - 200) fr.push(f);
+  }
+  fr.sort((p, q) => p - q);
+  const F1 = fr.find(f => f >= 200 && f <= 1050);
+  if (!F1) return null;
+  const F2 = fr.find(f => f > F1 + 200 && f < 3000);
+  const F3 = F2 ? fr.find(f => f > F2 + 200 && f < 4300) : undefined;
+  return { F1, F2: F2 || NaN, F3: F3 || NaN };
+}
 function formantsAt(x11, s0, fs) {
   const env = lpcEnvelope(x11, s0, Math.round(0.03 * fs), 12, fs);
   if (!env) return null;
@@ -347,8 +417,8 @@ function formantsAt(x11, s0, fs) {
 }
 function formantTrack(x, t0, t1) {
   const fs = 11025, x11 = resample(x, SR, fs), out = [];
-  for (let t = t0; t < t1 - 0.03; t += 0.01) {
-    const f = formantsAt(x11, Math.round(t * fs), fs);
+  for (let t = t0; t < t1 - 0.025; t += 0.01) {
+    const f = formantsRoots(x11, Math.round(t * fs), fs, 12);
     out.push(Object.assign({ t: t + 0.015 }, f || { F1: NaN, F2: NaN, F3: NaN }));
   }
   return out;
@@ -374,6 +444,12 @@ function analyzeSyllable(x, opts = {}) {
     if ([0, 1, 2].every(k => track[i + k].ap < 0.3 && track[i + k].db > pk - 25)) { vStrict = p.t - 0.01; break; }
   }
   if (isFinite(vStrict)) res.voiceOn = vStrict;
+  // final de la parte vocálica para medir formantes: última trama periódica y fuerte (no la cola de ruido o zumbido)
+  res.vowelOff = res.voiceOff;
+  if (contour.length) {
+    const pkc = Math.max(...contour.map(p => p.db));
+    for (let i = track.length - 1; i >= 0; i--) { const p = track[i]; if (p.t > res.voiceOff + 0.005) continue; if (p.t <= res.voiceOn + 0.05) break; if (p.db > pkc - 18 && p.ap < 0.45) { res.vowelOff = Math.min(res.voiceOff, p.t + 0.005); break; } }
+  }
   // inicio del ruido: desde el inicio de la voz, retrocede mientras haya energía en agudos sobre el ruido de fondo
   const floorHf = opts.noiseHf != null ? opts.noiseHf : pct(fr.hf, 0.1);
   let nOn = res.voiceOn;
@@ -385,6 +461,8 @@ function analyzeSyllable(x, opts = {}) {
     nOn = last * HOP + 0.01; // centro de la ventana de 20 ms
   }
   res.noiseOn = nOn;
+  // relación señal/ruido en agudos (para saber si se puede medir el soplo y el siseo)
+  res.hfFloor = floorHf; res.hfPeak = Math.max(...Array.from(fr.hf.slice(reg.a, reg.b)));
   res.noiseDur = isFinite(res.voiceOn) ? Math.max(0, res.voiceOn - nOn) : NaN;
   // espectro de la fricación
   vOn = res.voiceOn;
@@ -407,7 +485,7 @@ function analyzeSyllable(x, opts = {}) {
 // Formantes de la parte vocálica de una sílaba ya analizada
 function vowelFormants(x, an) {
   if (!an.ok || !isFinite(an.voiceOn)) return null;
-  const tr = formantTrack(x, an.voiceOn, an.voiceOff + 0.01);
+  const tr = formantTrack(x, an.voiceOn, (an.vowelOff || an.voiceOff) + 0.01);
   return tr;
 }
 
@@ -583,7 +661,7 @@ function wordTones(model, contours, range) {
 }
 
 const API = { wordTones, contourSimilarity, analyzeWord, toneOf, retroflexProb, softmaxLR, logisticLR, toneFeatureVec, setModels(m) { MODELS = m; }, get MODELS() { return MODELS; }, SR, resample, frames, speechRegion, pitchTrack, viterbiPitch, cleanContour, resampleContour, toLevels, toneFeatures, classifyTone,
-  noiseSpectrum, spectralFeatures, formantTrack, analyzeSyllable, vowelFormants, median, pct, mean, st, hz,
+  noiseSpectrum, spectralFeatures, formantTrack, bandProfile, vowelBands, BAND_EDGES, analyzeSyllable, vowelFormants, median, pct, mean, st, hz,
   setTemplates(t) { TEMPLATES = t; }, get TEMPLATES() { return TEMPLATES; } };
 if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.PYE = API;
 })(typeof self !== 'undefined' ? self : this);
