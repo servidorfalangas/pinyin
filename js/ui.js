@@ -73,15 +73,15 @@ function dueItems() { const now = Date.now(); return Object.values(srs).filter(s
 // ---------- dibujo ----------
 const CHAO = { 1: [5, 5], 2: [3, 5], 3: [2, 1, 4], 4: [5, 1], 5: [3, 3] };
 const toneColor = t => css('--t' + t) || css('--jade');
-function toneIcon(t, small) {
+function toneIcon(t, small, big) {
   const pts = CHAO[t] || [3, 3], w = 34, h = 26;
   const xs = pts.map((_, i) => 4 + i * (w - 8) / (pts.length - 1)), ys = pts.map(v => h - 3 - (v - 1) * (h - 6) / 4);
   const d = 'M' + xs.map((x, i) => x.toFixed(1) + ' ' + ys[i].toFixed(1)).join(' L');
-  return '<svg class="toneicon" viewBox="0 0 34 26" aria-label="tono ' + t + '"' + (small ? ' style="width:26px;height:20px"' : '') + '><line x1="2" y1="3" x2="32" y2="3"/><line x1="2" y1="23" x2="32" y2="23"/><path d="' + d + '" stroke="var(--t' + (t === 5 ? 2 : t) + ')"' + (t === 5 ? ' stroke-dasharray="2 4"' : '') + '/></svg>';
+  return '<svg class="toneicon" viewBox="0 0 34 26" aria-label="tono ' + t + '"' + (small ? ' style="width:26px;height:20px"' : big ? ' style="width:54px;height:40px"' : '') + '><line x1="2" y1="3" x2="32" y2="3"/><line x1="2" y1="23" x2="32" y2="23"/><path d="' + d + '" stroke="var(--t' + (t === 5 ? 2 : t) + ')"' + (t === 5 ? ' stroke-dasharray="2 4"' : '') + '/></svg>';
 }
 // Diagrama grande de los tonos en la escala de 5 alturas
 function toneChart(tones) {
-  const W = 300, H = 150, x0 = 34, x1 = W - 12, yOf = L => 14 + (5 - L) * (H - 34) / 4;
+  const W = 300, H = 164, x0 = 34, x1 = W - 12, yOf = L => 28 + (5 - L) * (H - 48) / 4;
   let g = '';
   for (let L = 1; L <= 5; L++) g += '<line x1="' + x0 + '" x2="' + x1 + '" y1="' + yOf(L) + '" y2="' + yOf(L) + '" class="tc-grid' + (L === 1 || L === 5 ? ' edge' : '') + '"/><text x="' + (x0 - 8) + '" y="' + (yOf(L) + 4) + '" class="tc-num">' + L + '</text>';
   g += '<text x="' + x0 + '" y="' + (H - 4) + '" class="tc-cap">1 = lo más grave de tu voz</text><text x="' + x1 + '" y="' + (H - 4) + '" class="tc-cap" text-anchor="end">5 = lo más agudo</text>';
@@ -91,7 +91,7 @@ function toneChart(tones) {
     const P = pts.map((L, i) => [a + (b - a) * i / (pts.length - 1), yOf(L)]);
     const d = P.length === 3 ? 'M' + P[0].join(' ') + ' Q' + P[1][0] + ' ' + (P[1][1] + 14) + ' ' + P[2].join(' ') : 'M' + P[0].join(' ') + ' L' + P[1].join(' ');
     g += '<path d="' + d + '" class="tc-line" pathLength="1" style="stroke:var(--t' + t + ');animation-delay:' + (k * 0.35) + 's"/><circle cx="' + P[P.length - 1][0] + '" cy="' + P[P.length - 1][1] + '" r="4.5" style="fill:var(--t' + t + ')"/>' +
-      '<text x="' + ((a + b) / 2) + '" y="' + (yOf(5) - 2 > 10 ? 10 : 10) + '" class="tc-t" text-anchor="middle" style="fill:var(--t' + t + ')">' + (n > 1 ? 'Tono ' + t : 'Tono ' + t + ' · ' + C.TONES[t].chao) + '</text>';
+      '<text x="' + ((a + b) / 2) + '" y="13" class="tc-t" text-anchor="middle" style="fill:var(--t' + t + ')">' + (n > 1 ? 'Tono ' + t : 'Tono ' + t + ' · ' + C.TONES[t].chao) + '</text>';
   });
   return '<svg class="tonechart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Forma de los tonos ' + tones.join(', ') + '">' + g + '</svg>';
 }
@@ -266,7 +266,7 @@ function buildSteps(l) {
       for (let k = 0; k < 4; k++) {
         const t = pick(l.tones); const base = pick(['ma', 'ba', 'yi', 'wu', 'da', 'tang', 'fei', 'shi']);
         const syl = Core.hasSyl(base + t) ? base + t : 'ma' + t;
-        steps.push({ type: 'listen', play: { syl }, prompt: '¿Qué tono has oído?', options: l.tones.map(tt => ({ value: tt, html: toneIcon(tt) + '<span class="sm">' + esc(C.TONES[tt].shape) + '</span>' })), answer: t });
+        steps.push({ type: 'listen', play: { syl }, prompt: '¿Qué tono has oído?', options: l.tones.map(tt => ({ value: tt, html: toneIcon(tt, false, true) + '<span class="sm">' + esc(C.TONES[tt].shape) + '</span>' })), answer: t });
       }
     }
     const sp = l.mixed ? shuffle(l.speak).slice(0, 8) : shuffle(l.speak).slice(0, 7);
